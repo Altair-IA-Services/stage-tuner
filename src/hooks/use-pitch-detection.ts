@@ -167,7 +167,8 @@ export function usePitchDetection(enabled: boolean): PitchState & {
       const src = ctx.createMediaStreamSource(stream);
       sourceRef.current = src;
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 2048;
+      // 4096 samples ≈ 93 ms @44.1 kHz — assez de cycles pour les cordes graves (~78 Hz).
+      analyser.fftSize = 4096;
       analyser.smoothingTimeConstant = 0;
       // Connect source -> analyser only. DO NOT connect analyser to
       // ctx.destination — that would loop the mic back into speakers.
@@ -175,6 +176,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
       analyserRef.current = analyser;
       bufferRef.current = new Float32Array(analyser.fftSize);
       byteBufferRef.current = new Uint8Array(analyser.fftSize);
+
 
       startTsRef.current = performance.now();
       nonZeroRef.current = false;
@@ -239,8 +241,9 @@ export function usePitchDetection(enabled: boolean): PitchState & {
           threshold: 0.1,
           minFreq: 55,
           maxFreq: 1000,
-          rmsThreshold: 0.015,
+          rmsThreshold: 0.02,
         });
+
 
         // Throttle diagnostic track polling to ~10 Hz
         const now = performance.now();

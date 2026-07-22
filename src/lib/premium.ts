@@ -10,15 +10,11 @@ export interface PremiumState {
 }
 
 export function getPremium(): PremiumState {
-  if (typeof window === "undefined") return { unlocked: false };
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return { unlocked: false };
-    return JSON.parse(raw) as PremiumState;
-  } catch {
-    return { unlocked: false };
-  }
+  // Phase de test : toutes les fonctionnalités premium sont débloquées.
+  // Réactiver la vérification de licence quand la monétisation reviendra.
+  return { unlocked: true };
 }
+
 
 export function setPremium(state: PremiumState) {
   if (typeof window === "undefined") return;

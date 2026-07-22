@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Mic, MicOff, Play, Square, Share2, Save, Lock, Trash2, Guitar } from "lucide-react";
 import { usePitchDetection } from "@/hooks/use-pitch-detection";
-import { TUNINGS, getTuning, findClosestNote } from "@/lib/tunings";
+import { TUNINGS, getTuning } from "@/lib/tunings";
+import { freqToChromatic, noteFromMidi } from "@/lib/chromatic";
 import { Gauge } from "./Gauge";
 import { Strobe } from "./Strobe";
 import { playNote, stopNote, playConfirm } from "@/lib/tone";
@@ -16,6 +17,11 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const IN_TUNE_CENTS = 5;
+const NOISE_GATE_RMS = 0.02;
+const STABILITY_MS = 180;
+const HISTORY_MS = 400;
+const HISTORY_MAX = 8;
+
 
 export function TunerScreen() {
   const [tuningId, setTuningId] = useState<string>("standard");
@@ -46,16 +52,84 @@ export function TunerScreen() {
     if (tuning.premium && !premium) setTuningId("standard");
   }, [tuning, premium]);
 
-  const closest = pitch.freq
-    ? findClosestNote(pitch.freq, tuning)
-    : null;
-  const cents = closest?.cents ?? null;
+  // Chromatic detection with median smoothing + minimum stability window.
+  const historyRef = useRef<{ midi: number; t: number }[]>([]);
+  const pendingRef = useRef<{ midi: number; since: number } | null>(null);
+  const [displayMidi, setDisplayMidi] = useState<number | null>(null);
+
+  const rawChromatic = pitch.freq ? freqToChromatic(pitch.freq) : null;
+
+  useEffect(() => {
+    // Noise gate: below threshold or no confident pitch → clear display.
+    if (!pitch.freq || pitch.rms < NOISE_GATE_RMS) {
+      historyRef.current = [];
+      pendingRef.current = null;
+      if (displayMidi !== null) setDisplayMidi(null);
+      return;
+    }
+    const midi = freqToChromatic(pitch.freq).note.midi;
+    const now = performance.now();
+    const hist = historyRef.current;
+    hist.push({ midi, t: now });
+    while (hist.length > 0 && (now - hist[0].t > HISTORY_MS || hist.length > HISTORY_MAX)) {
+      hist.shift();
+    }
+    // Majority / median across the window.
+    const counts = new Map<number, number>();
+    for (const h of hist) counts.set(h.midi, (counts.get(h.midi) ?? 0) + 1);
+    let majority = midi;
+    let best = 0;
+    for (const [m, c] of counts) {
+      if (c > best) {
+        best = c;
+        majority = m;
+      }
+    }
+    if (displayMidi === null) {
+      setDisplayMidi(majority);
+      pendingRef.current = null;
+      return;
+    }
+    if (majority === displayMidi) {
+      pendingRef.current = null;
+      return;
+    }
+    if (!pendingRef.current || pendingRef.current.midi !== majority) {
+      pendingRef.current = { midi: majority, since: now };
+    } else if (now - pendingRef.current.since >= STABILITY_MS) {
+      setDisplayMidi(majority);
+      pendingRef.current = null;
+    }
+  }, [pitch.freq, pitch.rms, displayMidi]);
+
+  const chroma = displayMidi !== null ? noteFromMidi(displayMidi) : null;
+  const cents =
+    chroma && pitch.freq
+      ? 1200 * Math.log2(pitch.freq / chroma.refFreq)
+      : null;
   const inTune = cents !== null && Math.abs(cents) <= IN_TUNE_CENTS;
+
+  // Expected string in the selected tuning (visual hint only).
+  const expectedIndex = useMemo(() => {
+    if (displayMidi === null) return -1;
+    let bestI = -1;
+    let bestDiff = Infinity;
+    tuning.notes.forEach((n, i) => {
+      const nMidi = Math.round(69 + 12 * Math.log2(n.freq / 440));
+      const d = Math.abs(nMidi - displayMidi);
+      if (d < bestDiff) {
+        bestDiff = d;
+        bestI = i;
+      }
+    });
+    return bestDiff <= 1 ? bestI : -1;
+  }, [displayMidi, tuning]);
 
   // Confirmation blip — fires once when transitioning to in-tune, then stops.
   useEffect(() => {
     if (inTune) playConfirm();
   }, [inTune]);
+
 
   const handleTuningClick = (id: string, isPremium: boolean) => {
     if (isPremium && !premium) {
@@ -150,7 +224,7 @@ export function TunerScreen() {
         {/* Big note display */}
         <div className="mb-6 rounded-3xl border border-border/60 bg-card p-6 shadow-xl">
           <div className="mb-4 flex h-32 items-center justify-center sm:h-40">
-            {closest ? (
+            {chroma ? (
               <div className="text-center leading-none">
                 <div
                   className={cn(
@@ -163,10 +237,10 @@ export function TunerScreen() {
                       : undefined,
                   }}
                 >
-                  {closest.note.displayName}
+                  {chroma.name}
                 </div>
                 <div className="mt-1 font-mono text-sm text-muted-foreground">
-                  {closest.note.name} · {closest.note.freq.toFixed(2)} Hz
+                  {chroma.fullName} · {chroma.refFreq.toFixed(2)} Hz
                 </div>
               </div>
             ) : (
@@ -176,6 +250,7 @@ export function TunerScreen() {
                   : "Micro coupé — appuyez sur ACTIVER"}
               </div>
             )}
+
           </div>
 
           {strobeMode ? (
@@ -308,7 +383,22 @@ export function TunerScreen() {
               </span>
               <span>sampleRate</span>
               <span className="text-right">{pitch.sampleRate} Hz</span>
+              <span>freq brute (YIN)</span>
+              <span className="text-right">
+                {pitch.freq ? `${pitch.freq.toFixed(2)} Hz` : "—"}
+              </span>
+              <span>note chromatique</span>
+              <span className="text-right">
+                {rawChromatic
+                  ? `${rawChromatic.note.fullName} (${rawChromatic.cents >= 0 ? "+" : ""}${rawChromatic.cents.toFixed(1)}¢)`
+                  : "—"}
+              </span>
+              <span>note stable</span>
+              <span className="text-right">
+                {chroma ? chroma.fullName : "—"}
+              </span>
             </div>
+
           </div>
         )}
 
@@ -363,26 +453,26 @@ export function TunerScreen() {
             )}
           </h2>
           <div className="grid grid-cols-6 gap-2">
-            {tuning.notes.map((n, i) => (
-              <button
-                key={i}
-                onClick={() => {
-                  if (!premium && tuningId !== "standard") return;
-                  if (!premium) {
-                    // Standard tuning: free
-                    playNote(n.freq);
-                    return;
-                  }
-                  playNote(n.freq);
-                }}
-                disabled={!premium && tuning.premium}
-                className="flex flex-col items-center justify-center rounded-lg border border-border bg-card py-3 font-mono text-xs hover:border-primary/50 hover:text-primary disabled:opacity-40"
-              >
-                <Play className="mb-1 h-3.5 w-3.5" />
-                {n.displayName}
-              </button>
-            ))}
+            {tuning.notes.map((n, i) => {
+              const isExpected = i === expectedIndex;
+              return (
+                <button
+                  key={i}
+                  onClick={() => playNote(n.freq)}
+                  className={cn(
+                    "flex flex-col items-center justify-center rounded-lg border py-3 font-mono text-xs transition-colors",
+                    isExpected
+                      ? "border-primary bg-primary/15 text-primary shadow-[0_0_18px_oklch(0.85_0.22_145_/_0.35)]"
+                      : "border-border bg-card hover:border-primary/50 hover:text-primary",
+                  )}
+                >
+                  <Play className="mb-1 h-3.5 w-3.5" />
+                  {n.displayName}
+                </button>
+              );
+            })}
           </div>
+
           <button
             onClick={stopNote}
             className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card py-2 font-mono text-xs text-muted-foreground hover:text-foreground"
