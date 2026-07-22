@@ -56,26 +56,40 @@ export function TunerScreen() {
   // Chromatic detection with median smoothing + minimum stability window.
   const historyRef = useRef<{ midi: number; t: number }[]>([]);
   const pendingRef = useRef<{ midi: number; since: number } | null>(null);
+  const lastSignalRef = useRef<number>(0);
+  const silenceTimerRef = useRef<number | null>(null);
   const [displayMidi, setDisplayMidi] = useState<number | null>(null);
 
-  
-
   useEffect(() => {
-    // Noise gate: below threshold or no confident pitch → clear display.
-    if (!pitch.freq || pitch.rms < NOISE_GATE_RMS) {
-      historyRef.current = [];
-      pendingRef.current = null;
-      if (displayMidi !== null) setDisplayMidi(null);
+    const hasSignal = pitch.freq !== null && pitch.rms >= NOISE_GATE_RMS;
+    const now = performance.now();
+
+    if (!hasSignal) {
+      // Do NOT clear immediately — hold last note through natural decay.
+      if (displayMidi !== null && silenceTimerRef.current === null) {
+        silenceTimerRef.current = window.setTimeout(() => {
+          historyRef.current = [];
+          pendingRef.current = null;
+          silenceTimerRef.current = null;
+          setDisplayMidi(null);
+        }, SUSTAIN_MS);
+      }
       return;
     }
-    const midi = freqToChromatic(pitch.freq).note.midi;
-    const now = performance.now();
+
+    // Signal is back — cancel any pending silence clear.
+    if (silenceTimerRef.current !== null) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    lastSignalRef.current = now;
+
+    const midi = freqToChromatic(pitch.freq!).note.midi;
     const hist = historyRef.current;
     hist.push({ midi, t: now });
     while (hist.length > 0 && (now - hist[0].t > HISTORY_MS || hist.length > HISTORY_MAX)) {
       hist.shift();
     }
-    // Majority / median across the window.
     const counts = new Map<number, number>();
     for (const h of hist) counts.set(h.midi, (counts.get(h.midi) ?? 0) + 1);
     let majority = midi;
@@ -102,6 +116,12 @@ export function TunerScreen() {
       pendingRef.current = null;
     }
   }, [pitch.freq, pitch.rms, displayMidi]);
+
+  useEffect(() => {
+    return () => {
+      if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
+    };
+  }, []);
 
   const chroma = displayMidi !== null ? noteFromMidi(displayMidi) : null;
   const cents =
