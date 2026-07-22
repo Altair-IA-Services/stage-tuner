@@ -124,27 +124,31 @@ export function TunerScreen() {
   }, []);
 
   const chroma = displayMidi !== null ? noteFromMidi(displayMidi) : null;
-  const cents =
+  const liveCents =
     chroma && pitch.freq
       ? 1200 * Math.log2(pitch.freq / chroma.refFreq)
       : null;
-  const inTune = cents !== null && Math.abs(cents) <= IN_TUNE_CENTS;
 
   // Smoothed cents for the indicator (EMA — inertia like a real needle).
+  // Retain last smoothed value while the note is held during natural decay.
   const smoothedCentsRef = useRef<number | null>(null);
   const [displayCents, setDisplayCents] = useState<number | null>(null);
   useEffect(() => {
-    if (cents === null) {
+    if (chroma === null) {
       smoothedCentsRef.current = null;
       setDisplayCents(null);
       return;
     }
+    if (liveCents === null) return; // hold last value during decay
     const prev = smoothedCentsRef.current;
     const alpha = 0.25;
-    const next = prev === null ? cents : prev + alpha * (cents - prev);
+    const next = prev === null ? liveCents : prev + alpha * (liveCents - prev);
     smoothedCentsRef.current = next;
     setDisplayCents(next);
-  }, [cents]);
+  }, [liveCents, chroma]);
+
+  const cents = displayCents;
+  const inTune = cents !== null && Math.abs(cents) <= IN_TUNE_CENTS;
 
   // Expected string in the selected tuning (visual hint only).
   const expectedIndex = useMemo(() => {
