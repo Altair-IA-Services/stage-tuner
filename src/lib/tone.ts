@@ -57,22 +57,48 @@ export function stopNote() {
   activeStopper?.();
 }
 
-// Short confirmation blip when note is in tune. Fires once, stops itself.
-let lastConfirmAt = 0;
+// Kept as no-op to preserve import compatibility; no in-tune beeps.
 export function playConfirm() {
-  const now = performance.now();
-  if (now - lastConfirmAt < 600) return;
-  lastConfirmAt = now;
-  const c = getCtx();
-  const t = c.currentTime;
-  const osc = c.createOscillator();
-  osc.type = "sine";
-  osc.frequency.value = 880;
-  const gain = c.createGain();
-  gain.gain.setValueAtTime(0, t);
-  gain.gain.linearRampToValueAtTime(0.15, t + 0.01);
-  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-  osc.connect(gain).connect(c.destination);
-  osc.start(t);
-  osc.stop(t + 0.2);
+  /* intentionally silent */
 }
+
+// Short mechanical footswitch click. Fires on mic toggle only.
+export function playFootswitch() {
+  try {
+    const c = getCtx();
+    const t = c.currentTime;
+    // Noise burst
+    const bufferSize = Math.floor(c.sampleRate * 0.04);
+    const buf = c.createBuffer(1, bufferSize, c.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 3);
+    }
+    const noise = c.createBufferSource();
+    noise.buffer = buf;
+    const hp = c.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 1200;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.35, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    noise.connect(hp).connect(g).connect(c.destination);
+    noise.start(t);
+    noise.stop(t + 0.06);
+
+    // Low thump
+    const osc = c.createOscillator();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(180, t);
+    osc.frequency.exponentialRampToValueAtTime(60, t + 0.04);
+    const og = c.createGain();
+    og.gain.setValueAtTime(0.25, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    osc.connect(og).connect(c.destination);
+    osc.start(t);
+    osc.stop(t + 0.06);
+  } catch {
+    /* noop */
+  }
+}
+
