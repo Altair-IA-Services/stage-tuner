@@ -224,7 +224,7 @@ export function TunerScreen() {
         {/* Big note display */}
         <div className="mb-6 rounded-3xl border border-border/60 bg-card p-6 shadow-xl">
           <div className="mb-4 flex h-32 items-center justify-center sm:h-40">
-            {closest ? (
+            {chroma ? (
               <div className="text-center leading-none">
                 <div
                   className={cn(
@@ -237,10 +237,10 @@ export function TunerScreen() {
                       : undefined,
                   }}
                 >
-                  {closest.note.displayName}
+                  {chroma.name}
                 </div>
                 <div className="mt-1 font-mono text-sm text-muted-foreground">
-                  {closest.note.name} · {closest.note.freq.toFixed(2)} Hz
+                  {chroma.fullName} · {chroma.refFreq.toFixed(2)} Hz
                 </div>
               </div>
             ) : (
@@ -250,6 +250,7 @@ export function TunerScreen() {
                   : "Micro coupé — appuyez sur ACTIVER"}
               </div>
             )}
+
           </div>
 
           {strobeMode ? (
