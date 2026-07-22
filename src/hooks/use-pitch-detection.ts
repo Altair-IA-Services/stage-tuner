@@ -33,6 +33,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
   const smoothRef = useRef<number | null>(null);
   const startTsRef = useRef<number>(0);
   const nonZeroRef = useRef<boolean>(false);
+  const startingRef = useRef<boolean>(false);
 
   const stop = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -45,12 +46,16 @@ export function usePitchDetection(enabled: boolean): PitchState & {
     sourceRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    ctxRef.current?.close().catch(() => undefined);
+    const ctx = ctxRef.current;
+    if (ctx && ctx.state !== "closed") {
+      ctx.close().catch(() => undefined);
+    }
     ctxRef.current = null;
     analyserRef.current = null;
     bufferRef.current = null;
     smoothRef.current = null;
     nonZeroRef.current = false;
+    startingRef.current = false;
     setState((s) => ({
       ...s,
       active: false,
@@ -62,20 +67,30 @@ export function usePitchDetection(enabled: boolean): PitchState & {
   };
 
   const start = async () => {
+    // Prevent duplicate starts (e.g. React StrictMode double invocation).
+    if (startingRef.current) return;
+    if (ctxRef.current && ctxRef.current.state !== "closed" && streamRef.current) {
+      return;
+    }
+    startingRef.current = true;
     try {
-      // 1. Create AudioContext SYNCHRONOUSLY inside the click handler window
       const AC =
         window.AudioContext ??
         (window as unknown as { webkitAudioContext: typeof AudioContext })
           .webkitAudioContext;
       if (!AC) {
         setState((s) => ({ ...s, error: "AudioContext non supporté par ce navigateur" }));
+        startingRef.current = false;
         return;
       }
-      const ctx = new AC({ sampleRate: 44100 });
-      ctxRef.current = ctx;
 
-      // 2. Resume immediately (still in user gesture)
+      // Always create a fresh context — never reuse a closed one.
+      let ctx = ctxRef.current;
+      if (!ctx || ctx.state === "closed") {
+        ctx = new AC({ sampleRate: 44100 });
+        ctxRef.current = ctx;
+      }
+
       if (ctx.state === "suspended") {
         await ctx.resume();
       }
@@ -84,8 +99,9 @@ export function usePitchDetection(enabled: boolean): PitchState & {
         setState((s) => ({
           ...s,
           error: "API micro indisponible (contexte non sécurisé ?)",
-          contextState: ctx.state,
+          contextState: ctx!.state,
         }));
+        startingRef.current = false;
         return;
       }
 
@@ -101,15 +117,25 @@ export function usePitchDetection(enabled: boolean): PitchState & {
       const tracks = stream.getAudioTracks();
       if (tracks.length === 0) {
         setState((s) => ({ ...s, error: "Aucune piste audio disponible" }));
+        startingRef.current = false;
         return;
       }
 
-      // Try resume again after gUM (some browsers suspend it)
+      // Context may have been closed while awaiting gUM — recreate if so.
+      if (!ctxRef.current || ctxRef.current.state === "closed") {
+        ctx = new AC({ sampleRate: 44100 });
+        ctxRef.current = ctx;
+      } else {
+        ctx = ctxRef.current;
+      }
       if (ctx.state === "suspended") {
         await ctx.resume().catch(() => undefined);
       }
+      if (ctx.state === "closed") {
+        startingRef.current = false;
+        return;
+      }
 
-      // 4. Connect stream to source → analyser
       const src = ctx.createMediaStreamSource(stream);
       sourceRef.current = src;
       const analyser = ctx.createAnalyser();
@@ -126,7 +152,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
         ...s,
         active: true,
         error: null,
-        contextState: ctx.state,
+        contextState: ctx!.state,
         receivingAudio: false,
       }));
 
@@ -134,12 +160,11 @@ export function usePitchDetection(enabled: boolean): PitchState & {
         const analyser = analyserRef.current;
         const buffer = bufferRef.current;
         const ctx = ctxRef.current;
-        if (!analyser || !buffer || !ctx) return;
+        if (!analyser || !buffer || !ctx || ctx.state === "closed") return;
         analyser.getFloatTimeDomainData(buffer as Float32Array<ArrayBuffer>);
         const rawRms = computeRms(buffer);
         if (rawRms > 0.0005) nonZeroRef.current = true;
 
-        // No-signal watchdog: after 2s still nothing → surface an error
         if (
           !nonZeroRef.current &&
           performance.now() - startTsRef.current > 2000
@@ -192,7 +217,9 @@ export function usePitchDetection(enabled: boolean): PitchState & {
         rafRef.current = requestAnimationFrame(loop);
       };
       rafRef.current = requestAnimationFrame(loop);
+      startingRef.current = false;
     } catch (err) {
+      startingRef.current = false;
       setState((s) => ({
         ...s,
         active: false,
@@ -208,9 +235,11 @@ export function usePitchDetection(enabled: boolean): PitchState & {
     }
   };
 
+  // Only stop when the caller explicitly disables the mic.
+  // Do NOT stop on unmount — React StrictMode would tear down the context
+  // immediately after start() in development, closing it before nodes connect.
   useEffect(() => {
     if (!enabled) stop();
-    return () => stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 
