@@ -109,6 +109,22 @@ export function TunerScreen() {
       : null;
   const inTune = cents !== null && Math.abs(cents) <= IN_TUNE_CENTS;
 
+  // Smoothed cents for the indicator (EMA — inertia like a real needle).
+  const smoothedCentsRef = useRef<number | null>(null);
+  const [displayCents, setDisplayCents] = useState<number | null>(null);
+  useEffect(() => {
+    if (cents === null) {
+      smoothedCentsRef.current = null;
+      setDisplayCents(null);
+      return;
+    }
+    const prev = smoothedCentsRef.current;
+    const alpha = 0.25;
+    const next = prev === null ? cents : prev + alpha * (cents - prev);
+    smoothedCentsRef.current = next;
+    setDisplayCents(next);
+  }, [cents]);
+
   // Expected string in the selected tuning (visual hint only).
   const expectedIndex = useMemo(() => {
     if (displayMidi === null) return -1;
@@ -129,6 +145,7 @@ export function TunerScreen() {
   useEffect(() => {
     if (inTune) playConfirm();
   }, [inTune]);
+
 
 
   const handleTuningClick = (id: string, isPremium: boolean) => {
