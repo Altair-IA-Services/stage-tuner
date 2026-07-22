@@ -70,7 +70,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
         const buffer = bufferRef.current;
         const ctx = ctxRef.current;
         if (!analyser || !buffer || !ctx) return;
-        analyser.getFloatTimeDomainData(buffer);
+        analyser.getFloatTimeDomainData(buffer as Float32Array<ArrayBuffer>);
         const res: YinResult | null = detectPitchYIN(buffer, ctx.sampleRate, {
           threshold: 0.1,
           minFreq: 55,
