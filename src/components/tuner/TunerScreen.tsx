@@ -17,7 +17,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const IN_TUNE_CENTS = 5;
-const NOISE_GATE_RMS = 0.02;
+const NOISE_GATE_RMS = 0.004;
+const SUSTAIN_MS = 1800; // hold last note through natural string decay
 const STABILITY_MS = 180;
 const HISTORY_MS = 400;
 const HISTORY_MAX = 8;

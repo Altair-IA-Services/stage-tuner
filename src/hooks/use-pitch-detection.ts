@@ -238,10 +238,10 @@ export function usePitchDetection(enabled: boolean): PitchState & {
         }
 
         const res: YinResult | null = detectPitchYIN(buffer, ctx.sampleRate, {
-          threshold: 0.1,
+          threshold: 0.15,
           minFreq: 55,
           maxFreq: 1000,
-          rmsThreshold: 0.02,
+          rmsThreshold: 0.004,
         });
 
 
