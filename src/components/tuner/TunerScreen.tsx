@@ -57,7 +57,7 @@ export function TunerScreen() {
   const pendingRef = useRef<{ midi: number; since: number } | null>(null);
   const [displayMidi, setDisplayMidi] = useState<number | null>(null);
 
-  const rawChromatic = pitch.freq ? freqToChromatic(pitch.freq) : null;
+  
 
   useEffect(() => {
     // Noise gate: below threshold or no confident pitch → clear display.
