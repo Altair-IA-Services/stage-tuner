@@ -17,7 +17,8 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const IN_TUNE_CENTS = 5;
-const NOISE_GATE_RMS = 0.02;
+const NOISE_GATE_RMS = 0.004;
+const SUSTAIN_MS = 1800; // hold last note through natural string decay
 const STABILITY_MS = 180;
 const HISTORY_MS = 400;
 const HISTORY_MAX = 8;
@@ -55,26 +56,40 @@ export function TunerScreen() {
   // Chromatic detection with median smoothing + minimum stability window.
   const historyRef = useRef<{ midi: number; t: number }[]>([]);
   const pendingRef = useRef<{ midi: number; since: number } | null>(null);
+  const lastSignalRef = useRef<number>(0);
+  const silenceTimerRef = useRef<number | null>(null);
   const [displayMidi, setDisplayMidi] = useState<number | null>(null);
 
-  
-
   useEffect(() => {
-    // Noise gate: below threshold or no confident pitch → clear display.
-    if (!pitch.freq || pitch.rms < NOISE_GATE_RMS) {
-      historyRef.current = [];
-      pendingRef.current = null;
-      if (displayMidi !== null) setDisplayMidi(null);
+    const hasSignal = pitch.freq !== null && pitch.rms >= NOISE_GATE_RMS;
+    const now = performance.now();
+
+    if (!hasSignal) {
+      // Do NOT clear immediately — hold last note through natural decay.
+      if (displayMidi !== null && silenceTimerRef.current === null) {
+        silenceTimerRef.current = window.setTimeout(() => {
+          historyRef.current = [];
+          pendingRef.current = null;
+          silenceTimerRef.current = null;
+          setDisplayMidi(null);
+        }, SUSTAIN_MS);
+      }
       return;
     }
-    const midi = freqToChromatic(pitch.freq).note.midi;
-    const now = performance.now();
+
+    // Signal is back — cancel any pending silence clear.
+    if (silenceTimerRef.current !== null) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    lastSignalRef.current = now;
+
+    const midi = freqToChromatic(pitch.freq!).note.midi;
     const hist = historyRef.current;
     hist.push({ midi, t: now });
     while (hist.length > 0 && (now - hist[0].t > HISTORY_MS || hist.length > HISTORY_MAX)) {
       hist.shift();
     }
-    // Majority / median across the window.
     const counts = new Map<number, number>();
     for (const h of hist) counts.set(h.midi, (counts.get(h.midi) ?? 0) + 1);
     let majority = midi;
@@ -102,28 +117,38 @@ export function TunerScreen() {
     }
   }, [pitch.freq, pitch.rms, displayMidi]);
 
+  useEffect(() => {
+    return () => {
+      if (silenceTimerRef.current !== null) clearTimeout(silenceTimerRef.current);
+    };
+  }, []);
+
   const chroma = displayMidi !== null ? noteFromMidi(displayMidi) : null;
-  const cents =
+  const liveCents =
     chroma && pitch.freq
       ? 1200 * Math.log2(pitch.freq / chroma.refFreq)
       : null;
-  const inTune = cents !== null && Math.abs(cents) <= IN_TUNE_CENTS;
 
   // Smoothed cents for the indicator (EMA — inertia like a real needle).
+  // Retain last smoothed value while the note is held during natural decay.
   const smoothedCentsRef = useRef<number | null>(null);
   const [displayCents, setDisplayCents] = useState<number | null>(null);
   useEffect(() => {
-    if (cents === null) {
+    if (chroma === null) {
       smoothedCentsRef.current = null;
       setDisplayCents(null);
       return;
     }
+    if (liveCents === null) return; // hold last value during decay
     const prev = smoothedCentsRef.current;
     const alpha = 0.25;
-    const next = prev === null ? cents : prev + alpha * (cents - prev);
+    const next = prev === null ? liveCents : prev + alpha * (liveCents - prev);
     smoothedCentsRef.current = next;
     setDisplayCents(next);
-  }, [cents]);
+  }, [liveCents, chroma]);
+
+  const cents = displayCents;
+  const inTune = cents !== null && Math.abs(cents) <= IN_TUNE_CENTS;
 
   // Expected string in the selected tuning (visual hint only).
   const expectedIndex = useMemo(() => {
@@ -238,98 +263,46 @@ export function TunerScreen() {
           </div>
         </header>
 
-        {/* Big note display */}
-        <div className="mb-6 rounded-3xl border border-border/60 bg-card p-6 shadow-xl">
-          <div className="mb-4 flex h-32 items-center justify-center sm:h-40">
-            {chroma ? (
-              <div className="text-center leading-none">
-                <div
-                  className={cn(
-                    "font-display text-[7rem] font-black tabular-nums leading-none tracking-tighter transition-colors sm:text-[9rem]",
-                    inTune ? "text-primary" : "text-destructive",
-                  )}
-                  style={{
-                    textShadow: inTune
-                      ? "0 0 40px oklch(0.85 0.22 145 / 0.55)"
-                      : undefined,
-                  }}
-                >
-                  {chroma.name}
-                </div>
-                <div className="mt-1 font-mono text-sm text-muted-foreground">
-                  {chroma.fullName} · {chroma.refFreq.toFixed(2)} Hz
-                </div>
-              </div>
-            ) : (
-              <div className="text-center font-mono text-sm text-muted-foreground">
-                {micOn
-                  ? "Jouez une corde…"
-                  : "Micro coupé — appuyez sur ACTIVER"}
-              </div>
-            )}
-
-          </div>
-
-          {strobeMode ? (
-            <Strobe cents={cents} active={micOn && cents !== null} leftHanded={leftHanded} />
-          ) : (
-            <Gauge cents={displayCents} centerMidi={displayMidi} leftHanded={leftHanded} />
-          )}
-
-
-          <div className="mt-3 flex items-center justify-between font-mono text-sm">
-            <span className="text-muted-foreground">
-              {pitch.freq ? `${pitch.freq.toFixed(1)} Hz` : "—"}
-            </span>
-            <span
-              className={cn(
-                "tabular-nums",
-                inTune ? "text-primary" : "text-muted-foreground",
-              )}
+        {/* 1. Reference tones — "Écoute des cordes" */}
+        <section className="mb-4">
+          <h2 className="mb-2 flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+            <span>Écoute des cordes</span>
+          </h2>
+          <div className="rounded-md border border-border bg-card p-3 shadow-inner">
+            <div className="grid grid-cols-6 gap-2">
+              {tuning.notes.map((n, i) => {
+                const isExpected = i === expectedIndex;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => playNote(n.freq)}
+                    className={cn(
+                      "flex flex-col items-center justify-center rounded-md border py-2 transition-colors",
+                      isExpected
+                        ? "border-primary bg-primary/15 text-primary shadow-[0_0_14px_var(--primary)]"
+                        : "border-border/70 bg-background/60 text-foreground hover:border-primary/60 hover:text-primary",
+                    )}
+                  >
+                    <Play className="mb-1 h-3 w-3 opacity-70" />
+                    <span className="font-display text-2xl font-bold leading-none">
+                      {n.displayName}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={stopNote}
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-md border border-border bg-background/60 py-1.5 font-mono text-[11px] text-muted-foreground hover:text-foreground"
             >
-              {cents !== null
-                ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents`
-                : "—"}
-            </span>
+              <Square className="h-3 w-3" /> Stop
+            </button>
           </div>
-        </div>
+        </section>
 
-        {/* Mic toggle */}
-        <button
-          onClick={() => {
-            if (micOn) {
-              pitch.stop();
-              setMicOn(false);
-            } else {
-              // Kick off start() synchronously inside the user gesture so
-              // AudioContext creation + resume() happen in the click frame.
-              void pitch.start();
-              setMicOn(true);
-            }
-          }}
-          className={cn(
-            "mb-4 flex w-full items-center justify-center gap-3 rounded-2xl border py-5 font-display text-lg font-bold tracking-widest transition-all",
-            micOn
-              ? "border-destructive/60 bg-destructive/15 text-destructive hover:bg-destructive/25"
-              : "border-primary/60 bg-primary/15 text-primary hover:bg-primary/25 shadow-[0_0_30px_oklch(0.85_0.22_145_/_0.25)]",
-          )}
-        >
-          {micOn ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-          {micOn ? "COUPER" : "ACTIVER LE MICRO"}
-        </button>
-
-
-
-
-        {pitch.error && (
-          <div className="mb-6 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            {pitch.error}
-          </div>
-        )}
-
-        {/* Tunings */}
-        <section className="mb-6">
-          <h2 className="mb-2 font-mono text-xs uppercase tracking-widest text-muted-foreground">
+        {/* 2. Tunings — "Accordage" */}
+        <section className="mb-4">
+          <h2 className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
             Accordage
           </h2>
           <div className="grid grid-cols-3 gap-2">
@@ -341,14 +314,16 @@ export function TunerScreen() {
                   key={t.id}
                   onClick={() => handleTuningClick(t.id, t.premium)}
                   className={cn(
-                    "relative rounded-xl border px-3 py-3 text-left transition-all",
+                    "relative flex flex-col rounded-md border px-3 py-3 text-left transition-all",
                     selected
-                      ? "border-primary bg-primary/10 text-foreground"
+                      ? "border-primary bg-primary/10 text-foreground shadow-[0_0_18px_var(--primary)]"
                       : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground",
                   )}
                 >
-                  <div className="font-display text-sm font-bold">{t.name}</div>
-                  <div className="mt-0.5 font-mono text-[10px] opacity-70">
+                  <div className="font-display text-sm font-semibold uppercase tracking-wider">
+                    {t.name}
+                  </div>
+                  <div className="mt-1 font-display text-xl font-bold uppercase tracking-wide text-foreground">
                     {t.notes.map((n) => n.displayName).join(" ")}
                   </div>
                   {locked && (
@@ -360,45 +335,92 @@ export function TunerScreen() {
           </div>
         </section>
 
-        {/* Reference tones */}
-        <section className="mb-6">
-          <h2 className="mb-2 flex items-center justify-between font-mono text-xs uppercase tracking-widest text-muted-foreground">
-            <span>Écoute des cordes</span>
-            {!premium && (
-              <span className="text-[10px] normal-case opacity-70">
-                <Lock className="mr-1 inline h-3 w-3" />
-                Premium
-              </span>
-            )}
-          </h2>
-          <div className="grid grid-cols-6 gap-2">
-            {tuning.notes.map((n, i) => {
-              const isExpected = i === expectedIndex;
-              return (
-                <button
-                  key={i}
-                  onClick={() => playNote(n.freq)}
+        {/* Mic toggle */}
+        <button
+          onClick={() => {
+            if (micOn) {
+              pitch.stop();
+              setMicOn(false);
+            } else {
+              void pitch.start();
+              setMicOn(true);
+            }
+          }}
+          className={cn(
+            "mb-3 flex w-full items-center justify-center gap-3 rounded-md border py-4 font-display text-lg font-bold uppercase tracking-[0.25em] transition-all",
+            micOn
+              ? "border-destructive/60 bg-destructive/15 text-destructive hover:bg-destructive/25"
+              : "border-primary/60 bg-primary/15 text-primary hover:bg-primary/25 shadow-[0_0_24px_var(--primary)]",
+          )}
+        >
+          {micOn ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+          {micOn ? "Couper" : "Activer le micro"}
+        </button>
+
+        {pitch.error && (
+          <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {pitch.error}
+          </div>
+        )}
+
+        {/* 3. Gauge + big note display */}
+        <div className="mb-6 rounded-md border border-border/60 bg-card p-4 shadow-xl">
+          <div className="mb-4 flex h-32 items-center justify-center sm:h-40">
+            {chroma ? (
+              <div className="text-center leading-none">
+                <div
                   className={cn(
-                    "flex flex-col items-center justify-center rounded-lg border py-3 font-mono text-xs transition-colors",
-                    isExpected
-                      ? "border-primary bg-primary/15 text-primary shadow-[0_0_18px_oklch(0.85_0.22_145_/_0.35)]"
-                      : "border-border bg-card hover:border-primary/50 hover:text-primary",
+                    "font-display text-[8rem] font-bold tabular-nums uppercase leading-none tracking-tight transition-colors sm:text-[10rem]",
+                    inTune
+                      ? "text-[color:var(--success)]"
+                      : "text-destructive",
                   )}
+                  style={{
+                    textShadow: inTune
+                      ? "0 0 40px var(--success)"
+                      : "0 0 30px var(--destructive)",
+                  }}
                 >
-                  <Play className="mb-1 h-3.5 w-3.5" />
-                  {n.displayName}
-                </button>
-              );
-            })}
+                  {chroma.name}
+                </div>
+                <div className="mt-1 font-mono text-xs text-muted-foreground">
+                  {chroma.fullName} · {chroma.refFreq.toFixed(2)} Hz
+                </div>
+              </div>
+            ) : (
+              <div className="text-center font-mono text-sm uppercase tracking-widest text-muted-foreground">
+                {micOn
+                  ? "Jouez une corde…"
+                  : "Micro coupé"}
+              </div>
+            )}
           </div>
 
-          <button
-            onClick={stopNote}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card py-2 font-mono text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Square className="h-3 w-3" /> Stop
-          </button>
-        </section>
+          {strobeMode ? (
+            <Strobe cents={cents} active={micOn && cents !== null} leftHanded={leftHanded} />
+          ) : (
+            <Gauge cents={displayCents} centerMidi={displayMidi} leftHanded={leftHanded} />
+          )}
+
+          <div className="mt-3 flex items-center justify-between font-mono text-xs">
+            <span className="text-muted-foreground tabular-nums">
+              {pitch.freq ? `${pitch.freq.toFixed(1)} Hz` : "—"}
+            </span>
+            <span
+              className={cn(
+                "tabular-nums",
+                inTune
+                  ? "text-[color:var(--success)]"
+                  : "text-muted-foreground",
+              )}
+            >
+              {cents !== null
+                ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents`
+                : "—"}
+            </span>
+          </div>
+        </div>
+
 
         {/* Options */}
         <section className="mb-6 grid grid-cols-2 gap-2">
