@@ -9,6 +9,16 @@ export interface PitchState {
   error: string | null;
   contextState: AudioContextState | "none";
   receivingAudio: boolean;
+  // Diagnostics
+  byteAvg: number; // average deviation from 128 of getByteTimeDomainData (0..127)
+  byteMax: number; // max deviation from 128 (0..127)
+  trackEnabled: boolean | null;
+  trackMuted: boolean | null;
+  trackLabel: string | null;
+  trackReadyState: MediaStreamTrackState | null;
+  fftSize: number;
+  bufferLength: number;
+  sampleRate: number;
 }
 
 export function usePitchDetection(enabled: boolean): PitchState & {
@@ -23,6 +33,15 @@ export function usePitchDetection(enabled: boolean): PitchState & {
     error: null,
     contextState: "none",
     receivingAudio: false,
+    byteAvg: 0,
+    byteMax: 0,
+    trackEnabled: null,
+    trackMuted: null,
+    trackLabel: null,
+    trackReadyState: null,
+    fftSize: 0,
+    bufferLength: 0,
+    sampleRate: 0,
   });
   const ctxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -30,10 +49,12 @@ export function usePitchDetection(enabled: boolean): PitchState & {
   const rafRef = useRef<number | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const bufferRef = useRef<Float32Array | null>(null);
+  const byteBufferRef = useRef<Uint8Array | null>(null);
   const smoothRef = useRef<number | null>(null);
   const startTsRef = useRef<number>(0);
   const nonZeroRef = useRef<boolean>(false);
   const startingRef = useRef<boolean>(false);
+  const lastDiagRef = useRef<number>(0);
 
   const stop = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -53,6 +74,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
     ctxRef.current = null;
     analyserRef.current = null;
     bufferRef.current = null;
+    byteBufferRef.current = null;
     smoothRef.current = null;
     nonZeroRef.current = false;
     startingRef.current = false;
@@ -63,11 +85,19 @@ export function usePitchDetection(enabled: boolean): PitchState & {
       rms: 0,
       contextState: "none",
       receivingAudio: false,
+      byteAvg: 0,
+      byteMax: 0,
+      trackEnabled: null,
+      trackMuted: null,
+      trackLabel: null,
+      trackReadyState: null,
+      fftSize: 0,
+      bufferLength: 0,
+      sampleRate: 0,
     }));
   };
 
   const start = async () => {
-    // Prevent duplicate starts (e.g. React StrictMode double invocation).
     if (startingRef.current) return;
     if (ctxRef.current && ctxRef.current.state !== "closed" && streamRef.current) {
       return;
@@ -84,7 +114,6 @@ export function usePitchDetection(enabled: boolean): PitchState & {
         return;
       }
 
-      // Always create a fresh context — never reuse a closed one.
       let ctx = ctxRef.current;
       if (!ctx || ctx.state === "closed") {
         ctx = new AC({ sampleRate: 44100 });
@@ -121,7 +150,6 @@ export function usePitchDetection(enabled: boolean): PitchState & {
         return;
       }
 
-      // Context may have been closed while awaiting gUM — recreate if so.
       if (!ctxRef.current || ctxRef.current.state === "closed") {
         ctx = new AC({ sampleRate: 44100 });
         ctxRef.current = ctx;
@@ -139,31 +167,55 @@ export function usePitchDetection(enabled: boolean): PitchState & {
       const src = ctx.createMediaStreamSource(stream);
       sourceRef.current = src;
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 4096;
+      analyser.fftSize = 2048;
       analyser.smoothingTimeConstant = 0;
+      // Connect source -> analyser only. DO NOT connect analyser to
+      // ctx.destination — that would loop the mic back into speakers.
       src.connect(analyser);
       analyserRef.current = analyser;
       bufferRef.current = new Float32Array(analyser.fftSize);
+      byteBufferRef.current = new Uint8Array(analyser.fftSize);
 
       startTsRef.current = performance.now();
       nonZeroRef.current = false;
 
+      const track = tracks[0];
       setState((s) => ({
         ...s,
         active: true,
         error: null,
         contextState: ctx!.state,
         receivingAudio: false,
+        trackEnabled: track.enabled,
+        trackMuted: track.muted,
+        trackLabel: track.label || "(sans nom)",
+        trackReadyState: track.readyState,
+        fftSize: analyser.fftSize,
+        bufferLength: analyser.fftSize,
+        sampleRate: ctx!.sampleRate,
       }));
 
       const loop = () => {
         const analyser = analyserRef.current;
         const buffer = bufferRef.current;
+        const byteBuffer = byteBufferRef.current;
         const ctx = ctxRef.current;
-        if (!analyser || !buffer || !ctx || ctx.state === "closed") return;
+        const stream = streamRef.current;
+        if (!analyser || !buffer || !byteBuffer || !ctx || ctx.state === "closed") return;
         analyser.getFloatTimeDomainData(buffer as Float32Array<ArrayBuffer>);
+        analyser.getByteTimeDomainData(byteBuffer as Uint8Array<ArrayBuffer>);
+
+        let byteSum = 0;
+        let byteMax = 0;
+        for (let i = 0; i < byteBuffer.length; i++) {
+          const dev = Math.abs(byteBuffer[i] - 128);
+          byteSum += dev;
+          if (dev > byteMax) byteMax = dev;
+        }
+        const byteAvg = byteSum / byteBuffer.length;
+
         const rawRms = computeRms(buffer);
-        if (rawRms > 0.0005) nonZeroRef.current = true;
+        if (rawRms > 0.0005 || byteMax > 1) nonZeroRef.current = true;
 
         if (
           !nonZeroRef.current &&
@@ -189,6 +241,22 @@ export function usePitchDetection(enabled: boolean): PitchState & {
           maxFreq: 1000,
           rmsThreshold: 0.015,
         });
+
+        // Throttle diagnostic track polling to ~10 Hz
+        const now = performance.now();
+        let trackPatch: Partial<PitchState> = {};
+        if (now - lastDiagRef.current > 100) {
+          lastDiagRef.current = now;
+          const track = stream?.getAudioTracks()[0];
+          if (track) {
+            trackPatch = {
+              trackEnabled: track.enabled,
+              trackMuted: track.muted,
+              trackReadyState: track.readyState,
+            };
+          }
+        }
+
         if (res && res.probability > 0.85) {
           const prev = smoothRef.current;
           const next = prev ? prev * 0.6 + res.frequency * 0.4 : res.frequency;
@@ -197,11 +265,14 @@ export function usePitchDetection(enabled: boolean): PitchState & {
             ...s,
             freq: next,
             rms: rawRms,
+            byteAvg,
+            byteMax,
             probability: res.probability,
             active: true,
             error: null,
             contextState: ctx.state,
             receivingAudio: true,
+            ...trackPatch,
           }));
         } else {
           smoothRef.current = null;
@@ -209,9 +280,12 @@ export function usePitchDetection(enabled: boolean): PitchState & {
             ...s,
             freq: null,
             rms: rawRms,
+            byteAvg,
+            byteMax,
             probability: 0,
             contextState: ctx.state,
             receivingAudio: nonZeroRef.current,
+            ...trackPatch,
           }));
         }
         rafRef.current = requestAnimationFrame(loop);
@@ -235,9 +309,6 @@ export function usePitchDetection(enabled: boolean): PitchState & {
     }
   };
 
-  // Only stop when the caller explicitly disables the mic.
-  // Do NOT stop on unmount — React StrictMode would tear down the context
-  // immediately after start() in development, closing it before nodes connect.
   useEffect(() => {
     if (!enabled) stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
