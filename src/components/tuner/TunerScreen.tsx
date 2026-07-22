@@ -208,12 +208,14 @@ export function TunerScreen() {
               pitch.stop();
               setMicOn(false);
             } else {
+              // Kick off start() synchronously inside the user gesture so
+              // AudioContext creation + resume() happen in the click frame.
+              void pitch.start();
               setMicOn(true);
-              pitch.start();
             }
           }}
           className={cn(
-            "mb-6 flex w-full items-center justify-center gap-3 rounded-2xl border py-5 font-display text-lg font-bold tracking-widest transition-all",
+            "mb-4 flex w-full items-center justify-center gap-3 rounded-2xl border py-5 font-display text-lg font-bold tracking-widest transition-all",
             micOn
               ? "border-destructive/60 bg-destructive/15 text-destructive hover:bg-destructive/25"
               : "border-primary/60 bg-primary/15 text-primary hover:bg-primary/25 shadow-[0_0_30px_oklch(0.85_0.22_145_/_0.25)]",
@@ -222,6 +224,33 @@ export function TunerScreen() {
           {micOn ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
           {micOn ? "COUPER" : "ACTIVER LE MICRO"}
         </button>
+
+        {/* Debug VU meter — raw mic level, bypasses YIN */}
+        {micOn && (
+          <div className="mb-4 rounded-xl border border-border bg-card p-3">
+            <div className="mb-1 flex items-center justify-between font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              <span>Niveau micro (debug)</span>
+              <span>
+                ctx: {pitch.contextState} ·{" "}
+                {pitch.receivingAudio ? "signal ok" : "silence"}
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn(
+                  "h-full transition-[width] duration-75",
+                  pitch.rms > 0.02 ? "bg-primary" : "bg-muted-foreground/60",
+                )}
+                style={{
+                  width: `${Math.min(100, Math.round(pitch.rms * 400))}%`,
+                }}
+              />
+            </div>
+            <div className="mt-1 text-right font-mono text-[10px] text-muted-foreground">
+              rms {pitch.rms.toFixed(4)}
+            </div>
+          </div>
+        )}
 
         {pitch.error && (
           <div className="mb-6 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
