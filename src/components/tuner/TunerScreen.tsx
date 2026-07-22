@@ -246,7 +246,7 @@ export function TunerScreen() {
                 <div
                   className={cn(
                     "font-display text-[7rem] font-black tabular-nums leading-none tracking-tighter transition-colors sm:text-[9rem]",
-                    inTune ? "text-primary" : "text-foreground",
+                    inTune ? "text-primary" : "text-destructive",
                   )}
                   style={{
                     textShadow: inTune
@@ -273,8 +273,9 @@ export function TunerScreen() {
           {strobeMode ? (
             <Strobe cents={cents} active={micOn && cents !== null} leftHanded={leftHanded} />
           ) : (
-            <Gauge cents={cents} inTune={inTune} leftHanded={leftHanded} />
+            <Gauge cents={displayCents} centerMidi={displayMidi} leftHanded={leftHanded} />
           )}
+
 
           <div className="mt-3 flex items-center justify-between font-mono text-sm">
             <span className="text-muted-foreground">
