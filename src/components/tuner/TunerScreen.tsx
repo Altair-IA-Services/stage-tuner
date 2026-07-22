@@ -383,7 +383,22 @@ export function TunerScreen() {
               </span>
               <span>sampleRate</span>
               <span className="text-right">{pitch.sampleRate} Hz</span>
+              <span>freq brute (YIN)</span>
+              <span className="text-right">
+                {pitch.freq ? `${pitch.freq.toFixed(2)} Hz` : "—"}
+              </span>
+              <span>note chromatique</span>
+              <span className="text-right">
+                {rawChromatic
+                  ? `${rawChromatic.note.fullName} (${rawChromatic.cents >= 0 ? "+" : ""}${rawChromatic.cents.toFixed(1)}¢)`
+                  : "—"}
+              </span>
+              <span>note stable</span>
+              <span className="text-right">
+                {chroma ? chroma.fullName : "—"}
+              </span>
             </div>
+
           </div>
         )}
 
@@ -438,26 +453,26 @@ export function TunerScreen() {
             )}
           </h2>
           <div className="grid grid-cols-6 gap-2">
-            {tuning.notes.map((n, i) => (
-              <button
-                key={i}
-                onClick={() => {
-                  if (!premium && tuningId !== "standard") return;
-                  if (!premium) {
-                    // Standard tuning: free
-                    playNote(n.freq);
-                    return;
-                  }
-                  playNote(n.freq);
-                }}
-                disabled={!premium && tuning.premium}
-                className="flex flex-col items-center justify-center rounded-lg border border-border bg-card py-3 font-mono text-xs hover:border-primary/50 hover:text-primary disabled:opacity-40"
-              >
-                <Play className="mb-1 h-3.5 w-3.5" />
-                {n.displayName}
-              </button>
-            ))}
+            {tuning.notes.map((n, i) => {
+              const isExpected = i === expectedIndex;
+              return (
+                <button
+                  key={i}
+                  onClick={() => playNote(n.freq)}
+                  className={cn(
+                    "flex flex-col items-center justify-center rounded-lg border py-3 font-mono text-xs transition-colors",
+                    isExpected
+                      ? "border-primary bg-primary/15 text-primary shadow-[0_0_18px_oklch(0.85_0.22_145_/_0.35)]"
+                      : "border-border bg-card hover:border-primary/50 hover:text-primary",
+                  )}
+                >
+                  <Play className="mb-1 h-3.5 w-3.5" />
+                  {n.displayName}
+                </button>
+              );
+            })}
           </div>
+
           <button
             onClick={stopNote}
             className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-card py-2 font-mono text-xs text-muted-foreground hover:text-foreground"
