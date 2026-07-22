@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Mic, MicOff, Play, Square, Share2, Save, Lock, Trash2, Guitar } from "lucide-react";
 import { usePitchDetection } from "@/hooks/use-pitch-detection";
 import { TUNINGS, getTuning } from "@/lib/tunings";
-import { freqToChromatic, midiToFreq, noteFromMidi } from "@/lib/chromatic";
+import { freqToChromatic, noteFromMidi } from "@/lib/chromatic";
 import { Gauge } from "./Gauge";
 import { Strobe } from "./Strobe";
 import { playNote, stopNote, playConfirm } from "@/lib/tone";
