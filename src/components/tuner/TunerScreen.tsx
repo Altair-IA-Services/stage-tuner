@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Mic, MicOff, Play, Square, Share2, Save, Lock, Trash2, Guitar } from "lucide-react";
 import { usePitchDetection } from "@/hooks/use-pitch-detection";
-import { TUNINGS, getTuning, findClosestNote } from "@/lib/tunings";
+import { TUNINGS, getTuning } from "@/lib/tunings";
+import { freqToChromatic, midiToFreq, noteFromMidi } from "@/lib/chromatic";
 import { Gauge } from "./Gauge";
 import { Strobe } from "./Strobe";
 import { playNote, stopNote, playConfirm } from "@/lib/tone";
@@ -16,6 +17,11 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const IN_TUNE_CENTS = 5;
+const NOISE_GATE_RMS = 0.02;
+const STABILITY_MS = 180;
+const HISTORY_MS = 400;
+const HISTORY_MAX = 8;
+
 
 export function TunerScreen() {
   const [tuningId, setTuningId] = useState<string>("standard");
@@ -46,16 +52,84 @@ export function TunerScreen() {
     if (tuning.premium && !premium) setTuningId("standard");
   }, [tuning, premium]);
 
-  const closest = pitch.freq
-    ? findClosestNote(pitch.freq, tuning)
-    : null;
-  const cents = closest?.cents ?? null;
+  // Chromatic detection with median smoothing + minimum stability window.
+  const historyRef = useRef<{ midi: number; t: number }[]>([]);
+  const pendingRef = useRef<{ midi: number; since: number } | null>(null);
+  const [displayMidi, setDisplayMidi] = useState<number | null>(null);
+
+  const rawChromatic = pitch.freq ? freqToChromatic(pitch.freq) : null;
+
+  useEffect(() => {
+    // Noise gate: below threshold or no confident pitch → clear display.
+    if (!pitch.freq || pitch.rms < NOISE_GATE_RMS) {
+      historyRef.current = [];
+      pendingRef.current = null;
+      if (displayMidi !== null) setDisplayMidi(null);
+      return;
+    }
+    const midi = freqToChromatic(pitch.freq).note.midi;
+    const now = performance.now();
+    const hist = historyRef.current;
+    hist.push({ midi, t: now });
+    while (hist.length > 0 && (now - hist[0].t > HISTORY_MS || hist.length > HISTORY_MAX)) {
+      hist.shift();
+    }
+    // Majority / median across the window.
+    const counts = new Map<number, number>();
+    for (const h of hist) counts.set(h.midi, (counts.get(h.midi) ?? 0) + 1);
+    let majority = midi;
+    let best = 0;
+    for (const [m, c] of counts) {
+      if (c > best) {
+        best = c;
+        majority = m;
+      }
+    }
+    if (displayMidi === null) {
+      setDisplayMidi(majority);
+      pendingRef.current = null;
+      return;
+    }
+    if (majority === displayMidi) {
+      pendingRef.current = null;
+      return;
+    }
+    if (!pendingRef.current || pendingRef.current.midi !== majority) {
+      pendingRef.current = { midi: majority, since: now };
+    } else if (now - pendingRef.current.since >= STABILITY_MS) {
+      setDisplayMidi(majority);
+      pendingRef.current = null;
+    }
+  }, [pitch.freq, pitch.rms, displayMidi]);
+
+  const chroma = displayMidi !== null ? noteFromMidi(displayMidi) : null;
+  const cents =
+    chroma && pitch.freq
+      ? 1200 * Math.log2(pitch.freq / chroma.refFreq)
+      : null;
   const inTune = cents !== null && Math.abs(cents) <= IN_TUNE_CENTS;
+
+  // Expected string in the selected tuning (visual hint only).
+  const expectedIndex = useMemo(() => {
+    if (displayMidi === null) return -1;
+    let bestI = -1;
+    let bestDiff = Infinity;
+    tuning.notes.forEach((n, i) => {
+      const nMidi = Math.round(69 + 12 * Math.log2(n.freq / 440));
+      const d = Math.abs(nMidi - displayMidi);
+      if (d < bestDiff) {
+        bestDiff = d;
+        bestI = i;
+      }
+    });
+    return bestDiff <= 1 ? bestI : -1;
+  }, [displayMidi, tuning]);
 
   // Confirmation blip — fires once when transitioning to in-tune, then stops.
   useEffect(() => {
     if (inTune) playConfirm();
   }, [inTune]);
+
 
   const handleTuningClick = (id: string, isPremium: boolean) => {
     if (isPremium && !premium) {
