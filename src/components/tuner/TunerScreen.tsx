@@ -57,7 +57,7 @@ export function TunerScreen() {
   const pendingRef = useRef<{ midi: number; since: number } | null>(null);
   const [displayMidi, setDisplayMidi] = useState<number | null>(null);
 
-  const rawChromatic = pitch.freq ? freqToChromatic(pitch.freq) : null;
+  
 
   useEffect(() => {
     // Noise gate: below threshold or no confident pitch → clear display.
@@ -109,6 +109,22 @@ export function TunerScreen() {
       : null;
   const inTune = cents !== null && Math.abs(cents) <= IN_TUNE_CENTS;
 
+  // Smoothed cents for the indicator (EMA — inertia like a real needle).
+  const smoothedCentsRef = useRef<number | null>(null);
+  const [displayCents, setDisplayCents] = useState<number | null>(null);
+  useEffect(() => {
+    if (cents === null) {
+      smoothedCentsRef.current = null;
+      setDisplayCents(null);
+      return;
+    }
+    const prev = smoothedCentsRef.current;
+    const alpha = 0.25;
+    const next = prev === null ? cents : prev + alpha * (cents - prev);
+    smoothedCentsRef.current = next;
+    setDisplayCents(next);
+  }, [cents]);
+
   // Expected string in the selected tuning (visual hint only).
   const expectedIndex = useMemo(() => {
     if (displayMidi === null) return -1;
@@ -129,6 +145,7 @@ export function TunerScreen() {
   useEffect(() => {
     if (inTune) playConfirm();
   }, [inTune]);
+
 
 
   const handleTuningClick = (id: string, isPremium: boolean) => {
@@ -229,7 +246,7 @@ export function TunerScreen() {
                 <div
                   className={cn(
                     "font-display text-[7rem] font-black tabular-nums leading-none tracking-tighter transition-colors sm:text-[9rem]",
-                    inTune ? "text-primary" : "text-foreground",
+                    inTune ? "text-primary" : "text-destructive",
                   )}
                   style={{
                     textShadow: inTune
@@ -256,8 +273,9 @@ export function TunerScreen() {
           {strobeMode ? (
             <Strobe cents={cents} active={micOn && cents !== null} leftHanded={leftHanded} />
           ) : (
-            <Gauge cents={cents} inTune={inTune} leftHanded={leftHanded} />
+            <Gauge cents={displayCents} centerMidi={displayMidi} leftHanded={leftHanded} />
           )}
+
 
           <div className="mt-3 flex items-center justify-between font-mono text-sm">
             <span className="text-muted-foreground">
@@ -300,107 +318,8 @@ export function TunerScreen() {
           {micOn ? "COUPER" : "ACTIVER LE MICRO"}
         </button>
 
-        {/* Debug panel — raw mic diagnostics, bypasses YIN */}
-        {micOn && (
-          <div className="mb-4 space-y-2 rounded-xl border border-border bg-card p-3">
-            <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              <span>Niveau micro (debug)</span>
-              <span>
-                ctx: {pitch.contextState} ·{" "}
-                {pitch.receivingAudio ? "signal ok" : "silence"}
-              </span>
-            </div>
 
-            {/* RMS bar (Float32) */}
-            <div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className={cn(
-                    "h-full transition-[width] duration-75",
-                    pitch.rms > 0.02 ? "bg-primary" : "bg-muted-foreground/60",
-                  )}
-                  style={{
-                    width: `${Math.min(100, Math.round(pitch.rms * 400))}%`,
-                  }}
-                />
-              </div>
-              <div className="mt-0.5 flex justify-between font-mono text-[10px] text-muted-foreground">
-                <span>RMS (Float32)</span>
-                <span>{pitch.rms.toFixed(4)}</span>
-              </div>
-            </div>
 
-            {/* Byte time-domain bar — proves AnalyserNode receives data */}
-            <div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className={cn(
-                    "h-full transition-[width] duration-75",
-                    pitch.byteAvg > 1 ? "bg-primary" : "bg-muted-foreground/60",
-                  )}
-                  style={{
-                    width: `${Math.min(100, Math.round((pitch.byteAvg / 64) * 100))}%`,
-                  }}
-                />
-              </div>
-              <div className="mt-0.5 flex justify-between font-mono text-[10px] text-muted-foreground">
-                <span>Byte moy. (getByteTimeDomainData)</span>
-                <span>
-                  moy {pitch.byteAvg.toFixed(2)} · max {pitch.byteMax}
-                </span>
-              </div>
-            </div>
-
-            {/* Track + analyser details */}
-            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 border-t border-border/50 pt-2 font-mono text-[10px] text-muted-foreground">
-              <span>track.enabled</span>
-              <span
-                className={cn(
-                  "text-right",
-                  pitch.trackEnabled === false && "text-destructive",
-                )}
-              >
-                {pitch.trackEnabled === null ? "—" : String(pitch.trackEnabled)}
-              </span>
-              <span>track.muted</span>
-              <span
-                className={cn(
-                  "text-right",
-                  pitch.trackMuted === true && "text-destructive",
-                )}
-              >
-                {pitch.trackMuted === null ? "—" : String(pitch.trackMuted)}
-              </span>
-              <span>track.readyState</span>
-              <span className="text-right">{pitch.trackReadyState ?? "—"}</span>
-              <span>track.label</span>
-              <span className="truncate text-right" title={pitch.trackLabel ?? ""}>
-                {pitch.trackLabel ?? "—"}
-              </span>
-              <span>fftSize / buffer</span>
-              <span className="text-right">
-                {pitch.fftSize} / {pitch.bufferLength}
-              </span>
-              <span>sampleRate</span>
-              <span className="text-right">{pitch.sampleRate} Hz</span>
-              <span>freq brute (YIN)</span>
-              <span className="text-right">
-                {pitch.freq ? `${pitch.freq.toFixed(2)} Hz` : "—"}
-              </span>
-              <span>note chromatique</span>
-              <span className="text-right">
-                {rawChromatic
-                  ? `${rawChromatic.note.fullName} (${rawChromatic.cents >= 0 ? "+" : ""}${rawChromatic.cents.toFixed(1)}¢)`
-                  : "—"}
-              </span>
-              <span>note stable</span>
-              <span className="text-right">
-                {chroma ? chroma.fullName : "—"}
-              </span>
-            </div>
-
-          </div>
-        )}
 
         {pitch.error && (
           <div className="mb-6 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
