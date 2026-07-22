@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mic, MicOff, Play, Square, Share2, Save, Lock, Trash2, Guitar } from "lucide-react";
+import { Mic, Save, Share2, Volume2, Trash2, X, Play, Square } from "lucide-react";
 import { usePitchDetection } from "@/hooks/use-pitch-detection";
 import { TUNINGS, getTuning } from "@/lib/tunings";
 import { freqToChromatic, noteFromMidi } from "@/lib/chromatic";
-import { Gauge } from "./Gauge";
-import { Strobe } from "./Strobe";
-import { playNote, stopNote, playConfirm } from "@/lib/tone";
-import { getPremium, unlockWithCode, lockPremium } from "@/lib/premium";
+import { ArcMeter } from "./ArcMeter";
+import { playNote, stopNote, playFootswitch } from "@/lib/tone";
 import {
   loadPresets,
   addPreset,
@@ -18,45 +16,38 @@ import { toast } from "sonner";
 
 const IN_TUNE_CENTS = 5;
 const NOISE_GATE_RMS = 0.004;
-const SUSTAIN_MS = 1800; // hold last note through natural string decay
+const SUSTAIN_MS = 1800;
 const STABILITY_MS = 180;
 const HISTORY_MS = 400;
 const HISTORY_MAX = 8;
 
+// Knob configs (id must match a tuning id).
+const KNOBS: { id: string; label: string; angle: number; big?: boolean }[] = [
+  { id: "eb", label: "Eb", angle: -30 },
+  { id: "standard", label: "E", angle: 0, big: true },
+  { id: "drop-csharp", label: "C#", angle: -90 },
+];
 
 export function TunerScreen() {
   const [tuningId, setTuningId] = useState<string>("standard");
-  const [strobeMode, setStrobeMode] = useState(false);
-  const [leftHanded, setLeftHanded] = useState(false);
   const [micOn, setMicOn] = useState(false);
-  const [premium, setPremiumState] = useState(false);
   const [presets, setPresets] = useState<Preset[]>([]);
-  const [showUnlock, setShowUnlock] = useState(false);
-  const [unlockCode, setUnlockCode] = useState("");
+  const [showPresets, setShowPresets] = useState(false);
+  const [showStrings, setShowStrings] = useState(false);
+  const [pressed, setPressed] = useState(false);
 
   const tuning = useMemo(() => getTuning(tuningId), [tuningId]);
   const pitch = usePitchDetection(micOn);
 
-  // Bootstrap from URL / storage
   useEffect(() => {
-    setPremiumState(getPremium().unlocked);
     setPresets(loadPresets());
     const params = new URLSearchParams(window.location.search);
     const t = params.get("t");
     if (t && TUNINGS.some((x) => x.id === t)) setTuningId(t);
-    const lh = params.get("lh");
-    if (lh === "1") setLeftHanded(true);
   }, []);
 
-  // Enforce premium gating on tuning select
-  useEffect(() => {
-    if (tuning.premium && !premium) setTuningId("standard");
-  }, [tuning, premium]);
-
-  // Chromatic detection with median smoothing + minimum stability window.
   const historyRef = useRef<{ midi: number; t: number }[]>([]);
   const pendingRef = useRef<{ midi: number; since: number } | null>(null);
-  const lastSignalRef = useRef<number>(0);
   const silenceTimerRef = useRef<number | null>(null);
   const [displayMidi, setDisplayMidi] = useState<number | null>(null);
 
@@ -65,7 +56,6 @@ export function TunerScreen() {
     const now = performance.now();
 
     if (!hasSignal) {
-      // Do NOT clear immediately — hold last note through natural decay.
       if (displayMidi !== null && silenceTimerRef.current === null) {
         silenceTimerRef.current = window.setTimeout(() => {
           historyRef.current = [];
@@ -77,12 +67,10 @@ export function TunerScreen() {
       return;
     }
 
-    // Signal is back — cancel any pending silence clear.
     if (silenceTimerRef.current !== null) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    lastSignalRef.current = now;
 
     const midi = freqToChromatic(pitch.freq!).note.midi;
     const hist = historyRef.current;
@@ -129,8 +117,6 @@ export function TunerScreen() {
       ? 1200 * Math.log2(pitch.freq / chroma.refFreq)
       : null;
 
-  // Smoothed cents for the indicator (EMA — inertia like a real needle).
-  // Retain last smoothed value while the note is held during natural decay.
   const smoothedCentsRef = useRef<number | null>(null);
   const [displayCents, setDisplayCents] = useState<number | null>(null);
   useEffect(() => {
@@ -139,7 +125,7 @@ export function TunerScreen() {
       setDisplayCents(null);
       return;
     }
-    if (liveCents === null) return; // hold last value during decay
+    if (liveCents === null) return;
     const prev = smoothedCentsRef.current;
     const alpha = 0.25;
     const next = prev === null ? liveCents : prev + alpha * (liveCents - prev);
@@ -150,7 +136,6 @@ export function TunerScreen() {
   const cents = displayCents;
   const inTune = cents !== null && Math.abs(cents) <= IN_TUNE_CENTS;
 
-  // Expected string in the selected tuning (visual hint only).
   const expectedIndex = useMemo(() => {
     if (displayMidi === null) return -1;
     let bestI = -1;
@@ -166,26 +151,21 @@ export function TunerScreen() {
     return bestDiff <= 1 ? bestI : -1;
   }, [displayMidi, tuning]);
 
-  // Confirmation blip — fires once when transitioning to in-tune, then stops.
-  useEffect(() => {
-    if (inTune) playConfirm();
-  }, [inTune]);
-
-
-
-  const handleTuningClick = (id: string, isPremium: boolean) => {
-    if (isPremium && !premium) {
-      setShowUnlock(true);
-      return;
+  const handleFootswitch = () => {
+    playFootswitch();
+    if (navigator.vibrate) navigator.vibrate(15);
+    if (micOn) {
+      pitch.stop();
+      setMicOn(false);
+    } else {
+      void pitch.start();
+      setMicOn(true);
     }
-    setTuningId(id);
   };
 
   const handleShare = async () => {
     const url = new URL(window.location.href);
     url.searchParams.set("t", tuningId);
-    if (leftHanded) url.searchParams.set("lh", "1");
-    else url.searchParams.delete("lh");
     try {
       await navigator.clipboard.writeText(url.toString());
       toast.success("Lien copié");
@@ -195,302 +175,350 @@ export function TunerScreen() {
   };
 
   const handleSavePreset = () => {
-    const name = prompt("Nom du preset (ex: Ma Strat → Eb)");
+    const name = prompt("Nom du preset");
     if (!name) return;
-    if (!premium && presets.length >= 1) {
-      toast.error("Preset illimité réservé au premium");
-      return;
-    }
-    addPreset({ name, tuningId, leftHanded, strobe: strobeMode });
+    addPreset({ name, tuningId });
     setPresets(loadPresets());
     toast.success("Preset enregistré");
   };
 
-  const handleLoadPreset = (p: Preset) => {
-    setTuningId(p.tuningId);
-    setLeftHanded(!!p.leftHanded);
-    setStrobeMode(!!p.strobe);
-  };
-
-  const handleDeletePreset = (id: string) => {
-    deletePreset(id);
-    setPresets(loadPresets());
-  };
-
-  const tryUnlock = () => {
-    if (unlockWithCode(unlockCode)) {
-      setPremiumState(true);
-      setShowUnlock(false);
-      setUnlockCode("");
-      toast.success("Premium débloqué");
-    } else {
-      toast.error("Code invalide");
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto max-w-2xl px-4 py-6 sm:py-10">
-        {/* Header */}
-        <header className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Guitar className="h-6 w-6 text-primary" />
-            <h1 className="font-display text-2xl font-black tracking-tight">
-              WEIRD<span className="text-primary">TUNE</span>
-            </h1>
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            {premium ? (
-              <button
-                onClick={() => {
-                  lockPremium();
-                  setPremiumState(false);
-                  toast.info("Premium désactivé");
-                }}
-                className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 font-mono text-primary"
-              >
-                PRO
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowUnlock(true)}
-                className="rounded-full border border-border px-3 py-1 font-mono text-muted-foreground hover:text-foreground"
-              >
-                <Lock className="mr-1 inline h-3 w-3" />
-                Débloquer
-              </button>
+    <div className="min-h-screen w-full bg-[#0b0407] flex items-start justify-center px-3 py-6 sm:py-10">
+      {/* PEDAL BODY */}
+      <div
+        className="relative w-full max-w-[420px] rounded-[36px] px-6 pt-6 pb-8 select-none"
+        style={{
+          background:
+            "linear-gradient(160deg, #C22440 0%, #A31E37 45%, #7A0E24 100%)",
+          boxShadow:
+            "0 30px 60px -20px rgba(0,0,0,0.7), inset 0 2px 0 rgba(255,255,255,0.18), inset 0 -6px 24px rgba(0,0,0,0.45), 0 0 0 2px rgba(0,0,0,0.4)",
+        }}
+      >
+        {/* Corner screws */}
+        {[
+          "top-3 left-3",
+          "top-3 right-3",
+          "bottom-3 left-3",
+          "bottom-3 right-3",
+        ].map((pos) => (
+          <div
+            key={pos}
+            className={cn(
+              "absolute h-3 w-3 rounded-full",
+              pos,
             )}
+            style={{
+              background:
+                "radial-gradient(circle at 30% 30%, #4a4a4a, #1a1a1a 70%)",
+              boxShadow:
+                "inset 0 0 0 1px rgba(0,0,0,0.6), 0 1px 1px rgba(255,255,255,0.15)",
+            }}
+          >
+            <div
+              className="absolute inset-x-[2px] top-1/2 h-[1px] -translate-y-1/2 bg-black/70"
+              style={{ transform: "translateY(-50%) rotate(35deg)" }}
+            />
           </div>
-        </header>
+        ))}
 
-        {/* 1. Reference tones — "Écoute des cordes" */}
-        <section className="mb-4">
-          <h2 className="mb-2 flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-            <span>Écoute des cordes</span>
-          </h2>
-          <div className="rounded-md border border-border bg-card p-3 shadow-inner">
-            <div className="grid grid-cols-6 gap-2">
-              {tuning.notes.map((n, i) => {
-                const isExpected = i === expectedIndex;
-                return (
-                  <button
-                    key={i}
-                    onClick={() => playNote(n.freq)}
-                    className={cn(
-                      "flex flex-col items-center justify-center rounded-md border py-2 transition-colors",
-                      isExpected
-                        ? "border-primary bg-primary/15 text-primary shadow-[0_0_14px_var(--primary)]"
-                        : "border-border/70 bg-background/60 text-foreground hover:border-primary/60 hover:text-primary",
-                    )}
-                  >
-                    <Play className="mb-1 h-3 w-3 opacity-70" />
-                    <span className="font-display text-2xl font-bold leading-none">
-                      {n.displayName}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              onClick={stopNote}
-              className="mt-2 flex w-full items-center justify-center gap-2 rounded-md border border-border bg-background/60 py-1.5 font-mono text-[11px] text-muted-foreground hover:text-foreground"
+        {/* Logo */}
+        <div className="text-center">
+          <div
+            className="leading-none"
+            style={{
+              fontFamily: '"Metal Mania", cursive',
+              color: "#FFE9B3",
+              fontSize: "2.4rem",
+              textShadow:
+                "0 1px 0 rgba(0,0,0,0.5), 0 0 12px rgba(255,209,102,0.35)",
+              letterSpacing: "0.02em",
+            }}
+          >
+            WeirdTuner
+          </div>
+          <svg
+            viewBox="0 0 220 10"
+            className="mx-auto mt-1 h-2 w-40"
+            aria-hidden
+          >
+            <path
+              d="M2 5 Q 20 0, 40 5 T 80 5 T 120 5 T 160 5 T 200 5 T 218 5"
+              fill="none"
+              stroke="#FFE9B3"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              opacity={0.85}
+            />
+          </svg>
+        </div>
+
+        {/* Arc VU meter */}
+        <div className="mt-5">
+          <ArcMeter cents={cents} inTune={inTune} />
+        </div>
+
+        {/* LCD display */}
+        <div
+          className="mt-4 rounded-xl px-4 py-3"
+          style={{
+            background:
+              "linear-gradient(180deg, #1a0509 0%, #2B0A12 100%)",
+            boxShadow:
+              "inset 0 3px 8px rgba(0,0,0,0.8), 0 0 0 2px rgba(0,0,0,0.5), 0 0 0 4px rgba(255,233,179,0.15)",
+          }}
+        >
+          <div className="flex items-baseline justify-between gap-3">
+            <div
+              className="font-display font-bold uppercase leading-none tabular-nums"
+              style={{
+                fontSize: "4.5rem",
+                color: chroma
+                  ? inTune
+                    ? "#3DDC84"
+                    : "#FF4D4D"
+                  : "#FFD166",
+                textShadow: chroma
+                  ? inTune
+                    ? "0 0 22px #3DDC84"
+                    : "0 0 18px #FF4D4D"
+                  : "0 0 12px rgba(255,209,102,0.4)",
+                fontFamily: '"Oswald", "Barlow Condensed", sans-serif',
+                minWidth: "5rem",
+              }}
             >
-              <Square className="h-3 w-3" /> Stop
-            </button>
+              {chroma ? chroma.name : "—"}
+            </div>
+            <div className="text-right">
+              <div
+                className="font-mono text-2xl tabular-nums"
+                style={{
+                  color: chroma
+                    ? inTune
+                      ? "#3DDC84"
+                      : "#FF4D4D"
+                    : "#FFD166",
+                }}
+              >
+                {cents !== null
+                  ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)}`
+                  : "--"}
+              </div>
+              <div className="font-mono text-[10px] uppercase tracking-widest text-[#FFE9B3]/50">
+                cents
+              </div>
+              {chroma && (
+                <div className="mt-1 font-mono text-[10px] text-[#FFE9B3]/60 tabular-nums">
+                  {chroma.fullName}
+                </div>
+              )}
+            </div>
           </div>
-        </section>
+          {pitch.error && (
+            <div className="mt-2 font-mono text-[10px] text-[#FF4D4D]/90">
+              {pitch.error}
+            </div>
+          )}
+        </div>
 
-        {/* 2. Tunings — "Accordage" */}
-        <section className="mb-4">
-          <h2 className="mb-2 font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-            Accordage
-          </h2>
+        {/* Knobs */}
+        <div className="mt-8 flex items-end justify-around">
+          {KNOBS.map((k) => {
+            const selected = tuningId === k.id;
+            const size = k.big ? 90 : 68;
+            return (
+              <button
+                key={k.id}
+                onClick={() => setTuningId(k.id)}
+                className="flex flex-col items-center gap-2 focus:outline-none"
+                aria-label={`Accordage ${k.label}`}
+              >
+                <div
+                  className="relative rounded-full"
+                  style={{
+                    width: size,
+                    height: size,
+                    background: selected
+                      ? "radial-gradient(circle at 35% 30%, #FFE9B3, #FFD166 55%, #b8892a 100%)"
+                      : "radial-gradient(circle at 35% 30%, #3a3a3a, #1a1a1a 70%, #0a0a0a 100%)",
+                    boxShadow: selected
+                      ? "inset 0 -3px 6px rgba(0,0,0,0.4), 0 3px 8px rgba(0,0,0,0.6), 0 0 20px rgba(255,209,102,0.45)"
+                      : "inset 0 -3px 6px rgba(0,0,0,0.7), 0 3px 8px rgba(0,0,0,0.7)",
+                    transition: "transform 300ms ease, box-shadow 300ms ease",
+                    transform: `rotate(${k.angle}deg)`,
+                  }}
+                >
+                  {/* Indicator line */}
+                  <div
+                    className="absolute left-1/2 top-1 h-[30%] w-[3px] -translate-x-1/2 rounded-full"
+                    style={{
+                      background: selected ? "#2B0A12" : "#FFE9B3",
+                      boxShadow: selected
+                        ? "none"
+                        : "0 0 6px rgba(255,233,179,0.6)",
+                    }}
+                  />
+                  {/* Center cap */}
+                  <div
+                    className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                    style={{
+                      background: selected ? "#7A0E24" : "#2a2a2a",
+                    }}
+                  />
+                </div>
+                <span
+                  className="font-display text-sm font-bold uppercase tracking-widest"
+                  style={{
+                    color: selected ? "#FFE9B3" : "#FFE9B3aa",
+                    textShadow: selected
+                      ? "0 0 8px rgba(255,233,179,0.6)"
+                      : "none",
+                  }}
+                >
+                  {k.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Footswitch */}
+        <div className="mt-8 flex justify-center">
+          <button
+            onPointerDown={() => setPressed(true)}
+            onPointerUp={() => setPressed(false)}
+            onPointerLeave={() => setPressed(false)}
+            onClick={handleFootswitch}
+            className="relative flex h-24 w-24 items-center justify-center rounded-full focus:outline-none"
+            style={{
+              background:
+                "radial-gradient(circle at 35% 30%, #FFE9B3, #FFD166 45%, #a3781f 100%)",
+              boxShadow: pressed
+                ? "inset 0 6px 14px rgba(0,0,0,0.55), 0 1px 2px rgba(0,0,0,0.4)"
+                : "0 8px 18px rgba(0,0,0,0.55), inset 0 -6px 12px rgba(0,0,0,0.35), inset 0 3px 4px rgba(255,255,255,0.4)",
+              transform: pressed ? "translateY(3px)" : "translateY(0)",
+              transition: "transform 90ms ease, box-shadow 90ms ease",
+            }}
+            aria-label={micOn ? "Couper le micro" : "Activer le micro"}
+          >
+            <div
+              className="flex h-16 w-16 items-center justify-center rounded-full"
+              style={{
+                background: micOn
+                  ? "radial-gradient(circle at 50% 40%, #FF6b6b, #A31E37)"
+                  : "radial-gradient(circle at 50% 40%, #4a1a24, #2B0A12)",
+                boxShadow: micOn
+                  ? "0 0 18px #FF4D4D, inset 0 2px 4px rgba(0,0,0,0.5)"
+                  : "inset 0 2px 6px rgba(0,0,0,0.7)",
+              }}
+            >
+              <Mic
+                className="h-7 w-7"
+                style={{ color: micOn ? "#FFE9B3" : "#FFD166cc" }}
+              />
+            </div>
+          </button>
+        </div>
+        <div
+          className="mt-2 text-center font-mono text-[10px] uppercase tracking-[0.35em]"
+          style={{ color: micOn ? "#3DDC84" : "#FFE9B3aa" }}
+        >
+          {micOn ? "● On" : "○ Off"}
+        </div>
+
+        {/* Jack row */}
+        <div className="mt-8 flex items-end justify-around">
+          <JackButton
+            icon={<Save className="h-4 w-4" />}
+            label="Presets"
+            onClick={() => setShowPresets(true)}
+          />
+          <JackButton
+            icon={<Share2 className="h-4 w-4" />}
+            label="Partager"
+            onClick={handleShare}
+          />
+          <JackButton
+            icon={<Volume2 className="h-4 w-4" />}
+            label="Cordes"
+            onClick={() => setShowStrings(true)}
+          />
+        </div>
+      </div>
+
+      {/* Strings modal */}
+      {showStrings && (
+        <Modal onClose={() => { stopNote(); setShowStrings(false); }} title="Écoute des cordes">
           <div className="grid grid-cols-3 gap-2">
-            {TUNINGS.map((t) => {
-              const locked = t.premium && !premium;
-              const selected = t.id === tuningId;
+            {tuning.notes.map((n, i) => {
+              const isExpected = i === expectedIndex;
               return (
                 <button
-                  key={t.id}
-                  onClick={() => handleTuningClick(t.id, t.premium)}
+                  key={i}
+                  onClick={() => playNote(n.freq)}
                   className={cn(
-                    "relative flex flex-col rounded-md border px-3 py-3 text-left transition-all",
-                    selected
-                      ? "border-primary bg-primary/10 text-foreground shadow-[0_0_18px_var(--primary)]"
-                      : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                    "flex flex-col items-center justify-center rounded-lg border py-3 transition-colors",
+                    isExpected
+                      ? "border-[#FFD166] bg-[#FFD166]/15 text-[#FFE9B3]"
+                      : "border-[#FFE9B3]/20 bg-[#2B0A12] text-[#FFE9B3]/80 hover:border-[#FFD166]/60",
                   )}
                 >
-                  <div className="font-display text-sm font-semibold uppercase tracking-wider">
-                    {t.name}
-                  </div>
-                  <div className="mt-1 font-display text-xl font-bold uppercase tracking-wide text-foreground">
-                    {t.notes.map((n) => n.displayName).join(" ")}
-                  </div>
-                  {locked && (
-                    <Lock className="absolute right-2 top-2 h-3.5 w-3.5 opacity-70" />
-                  )}
+                  <Play className="mb-1 h-3 w-3 opacity-70" />
+                  <span className="font-display text-2xl font-bold leading-none">
+                    {n.displayName}
+                  </span>
                 </button>
               );
             })}
           </div>
-        </section>
+          <button
+            onClick={stopNote}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-[#FFE9B3]/20 bg-[#2B0A12] py-2 font-mono text-xs text-[#FFE9B3]/80"
+          >
+            <Square className="h-3 w-3" /> Stop
+          </button>
+        </Modal>
+      )}
 
-        {/* Mic toggle */}
-        <button
-          onClick={() => {
-            if (micOn) {
-              pitch.stop();
-              setMicOn(false);
-            } else {
-              void pitch.start();
-              setMicOn(true);
-            }
-          }}
-          className={cn(
-            "mb-3 flex w-full items-center justify-center gap-3 rounded-md border py-4 font-display text-lg font-bold uppercase tracking-[0.25em] transition-all",
-            micOn
-              ? "border-destructive/60 bg-destructive/15 text-destructive hover:bg-destructive/25"
-              : "border-primary/60 bg-primary/15 text-primary hover:bg-primary/25 shadow-[0_0_24px_var(--primary)]",
-          )}
-        >
-          {micOn ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
-          {micOn ? "Couper" : "Activer le micro"}
-        </button>
-
-        {pitch.error && (
-          <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            {pitch.error}
-          </div>
-        )}
-
-        {/* 3. Gauge + big note display */}
-        <div className="mb-6 rounded-md border border-border/60 bg-card p-4 shadow-xl">
-          <div className="mb-4 flex h-32 items-center justify-center sm:h-40">
-            {chroma ? (
-              <div className="text-center leading-none">
-                <div
-                  className={cn(
-                    "font-display text-[8rem] font-bold tabular-nums uppercase leading-none tracking-tight transition-colors sm:text-[10rem]",
-                    inTune
-                      ? "text-[color:var(--success)]"
-                      : "text-destructive",
-                  )}
-                  style={{
-                    textShadow: inTune
-                      ? "0 0 40px var(--success)"
-                      : "0 0 30px var(--destructive)",
-                  }}
-                >
-                  {chroma.name}
-                </div>
-                <div className="mt-1 font-mono text-xs text-muted-foreground">
-                  {chroma.fullName} · {chroma.refFreq.toFixed(2)} Hz
-                </div>
-              </div>
-            ) : (
-              <div className="text-center font-mono text-sm uppercase tracking-widest text-muted-foreground">
-                {micOn
-                  ? "Jouez une corde…"
-                  : "Micro coupé"}
-              </div>
-            )}
-          </div>
-
-          {strobeMode ? (
-            <Strobe cents={cents} active={micOn && cents !== null} leftHanded={leftHanded} />
-          ) : (
-            <Gauge cents={displayCents} centerMidi={displayMidi} leftHanded={leftHanded} />
-          )}
-
-          <div className="mt-3 flex items-center justify-between font-mono text-xs">
-            <span className="text-muted-foreground tabular-nums">
-              {pitch.freq ? `${pitch.freq.toFixed(1)} Hz` : "—"}
-            </span>
-            <span
-              className={cn(
-                "tabular-nums",
-                inTune
-                  ? "text-[color:var(--success)]"
-                  : "text-muted-foreground",
-              )}
-            >
-              {cents !== null
-                ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)} cents`
-                : "—"}
-            </span>
-          </div>
-        </div>
-
-
-        {/* Options */}
-        <section className="mb-6 grid grid-cols-2 gap-2">
-          <ToggleRow
-            label="Mode strobe"
-            active={strobeMode}
-            premium={!premium}
-            onClick={() => {
-              if (!premium) {
-                setShowUnlock(true);
-                return;
-              }
-              setStrobeMode((v) => !v);
-            }}
-          />
-          <ToggleRow
-            label="Gaucher"
-            active={leftHanded}
-            onClick={() => setLeftHanded((v) => !v)}
-          />
-        </section>
-
-        {/* Presets */}
-        <section className="mb-6">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-              Presets
-            </h2>
-            <div className="flex gap-2">
-              <button
-                onClick={handleShare}
-                className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 font-mono text-xs hover:text-primary"
-              >
-                <Share2 className="h-3 w-3" /> Partager
-              </button>
-              <button
-                onClick={handleSavePreset}
-                className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 font-mono text-xs hover:text-primary"
-              >
-                <Save className="h-3 w-3" /> Enregistrer
-              </button>
-            </div>
-          </div>
+      {/* Presets modal */}
+      {showPresets && (
+        <Modal onClose={() => setShowPresets(false)} title="Presets">
+          <button
+            onClick={handleSavePreset}
+            className="mb-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[#FFD166] py-2 font-display text-sm font-bold text-[#2B0A12]"
+          >
+            <Save className="h-4 w-4" /> Enregistrer l'accordage courant
+          </button>
           {presets.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border/60 p-4 text-center font-mono text-xs text-muted-foreground">
-              Aucun preset enregistré
+            <div className="rounded-lg border border-dashed border-[#FFE9B3]/20 p-4 text-center font-mono text-xs text-[#FFE9B3]/60">
+              Aucun preset
             </div>
           ) : (
             <ul className="space-y-2">
               {presets.map((p) => (
                 <li
                   key={p.id}
-                  className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2"
+                  className="flex items-center justify-between rounded-lg border border-[#FFE9B3]/15 bg-[#2B0A12] px-3 py-2"
                 >
                   <button
-                    onClick={() => handleLoadPreset(p)}
+                    onClick={() => {
+                      setTuningId(p.tuningId);
+                      setShowPresets(false);
+                    }}
                     className="flex-1 text-left"
                   >
-                    <div className="font-display text-sm font-bold">
+                    <div className="font-display text-sm font-bold text-[#FFE9B3]">
                       {p.name}
                     </div>
-                    <div className="font-mono text-[10px] text-muted-foreground">
+                    <div className="font-mono text-[10px] text-[#FFE9B3]/50">
                       {getTuning(p.tuningId).name}
-                      {p.leftHanded ? " · gaucher" : ""}
-                      {p.strobe ? " · strobe" : ""}
                     </div>
                   </button>
                   <button
-                    onClick={() => handleDeletePreset(p.id)}
-                    className="p-1 text-muted-foreground hover:text-destructive"
+                    onClick={() => {
+                      deletePreset(p.id);
+                      setPresets(loadPresets());
+                    }}
+                    className="p-1 text-[#FFE9B3]/50 hover:text-[#FF4D4D]"
                     aria-label="Supprimer"
                   >
                     <Trash2 className="h-4 w-4" />
@@ -499,83 +527,92 @@ export function TunerScreen() {
               ))}
             </ul>
           )}
-        </section>
-
-        <footer className="mt-8 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-          YIN pitch detection · offline-ready
-        </footer>
-      </div>
-
-      {/* Unlock modal */}
-      {showUnlock && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur"
-          onClick={() => setShowUnlock(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="font-display text-xl font-black">Débloquer Premium</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Accordages Eb & Drop C#, mode strobe, écoute des cordes, presets
-              illimités. Achat unique.
-            </p>
-            <div className="mt-4 space-y-2">
-              <input
-                value={unlockCode}
-                onChange={(e) => setUnlockCode(e.target.value)}
-                placeholder="Code de licence"
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm focus:border-primary focus:outline-none"
-              />
-              <button
-                onClick={tryUnlock}
-                className="w-full rounded-lg bg-primary py-2 font-display font-bold text-primary-foreground hover:opacity-90"
-              >
-                Valider
-              </button>
-              <p className="text-center text-[10px] text-muted-foreground">
-                Astuce dev : code <code className="font-mono">WEIRDTUNE-DEV</code>
-              </p>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
 }
 
-function ToggleRow({
+function JackButton({
+  icon,
   label,
-  active,
-  premium,
   onClick,
 }: {
+  icon: React.ReactNode;
   label: string;
-  active: boolean;
-  premium?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
-      className={cn(
-        "flex items-center justify-between rounded-xl border px-4 py-3 font-display text-sm font-bold transition-all",
-        active
-          ? "border-primary bg-primary/10 text-primary"
-          : "border-border bg-card text-muted-foreground hover:text-foreground",
-      )}
+      className="flex flex-col items-center gap-1.5 focus:outline-none"
     >
-      <span className="flex items-center gap-2">
-        {premium && <Lock className="h-3.5 w-3.5 opacity-70" />}
+      <div
+        className="relative flex h-11 w-11 items-center justify-center rounded-full"
+        style={{
+          background:
+            "radial-gradient(circle at 35% 30%, #6a6a6a, #2a2a2a 65%, #0a0a0a 100%)",
+          boxShadow:
+            "inset 0 2px 4px rgba(255,255,255,0.15), inset 0 -3px 6px rgba(0,0,0,0.7), 0 2px 4px rgba(0,0,0,0.6)",
+        }}
+      >
+        <div
+          className="flex h-7 w-7 items-center justify-center rounded-full"
+          style={{
+            background:
+              "radial-gradient(circle at 40% 35%, #1a1a1a, #000)",
+            boxShadow: "inset 0 2px 3px rgba(0,0,0,0.9)",
+            color: "#FFD166",
+          }}
+        >
+          {icon}
+        </div>
+      </div>
+      <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-[#FFE9B3]/70">
         {label}
       </span>
-      <span
-        className={cn(
-          "h-2 w-2 rounded-full",
-          active ? "bg-primary shadow-[0_0_10px_currentColor]" : "bg-muted-foreground/30",
-        )}
-      />
     </button>
+  );
+}
+
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl border border-[#FFE9B3]/20 p-5 shadow-2xl"
+        style={{
+          background:
+            "linear-gradient(160deg, #A31E37 0%, #7A0E24 100%)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3
+            className="font-display text-lg font-bold uppercase tracking-widest text-[#FFE9B3]"
+          >
+            {title}
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-[#FFE9B3]/70 hover:text-[#FFE9B3]"
+            aria-label="Fermer"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
   );
 }
