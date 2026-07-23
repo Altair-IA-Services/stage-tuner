@@ -207,9 +207,10 @@ export function usePitchDetection(enabled: boolean): PitchState & {
         const analyser = analyserRef.current;
         const buffer = bufferRef.current;
         const byteBuffer = byteBufferRef.current;
+        const normalized = normalizedBufferRef.current;
         const ctx = ctxRef.current;
         const stream = streamRef.current;
-        if (!analyser || !buffer || !byteBuffer || !ctx || ctx.state === "closed") return;
+        if (!analyser || !buffer || !byteBuffer || !normalized || !ctx || ctx.state === "closed") return;
         analyser.getFloatTimeDomainData(buffer as Float32Array<ArrayBuffer>);
         analyser.getByteTimeDomainData(byteBuffer as Uint8Array<ArrayBuffer>);
 
@@ -224,6 +225,17 @@ export function usePitchDetection(enabled: boolean): PitchState & {
 
         const rawRms = computeRms(buffer);
         if (rawRms > 0.0005 || byteMax > 1) nonZeroRef.current = true;
+
+        // Adaptive noise floor: sample ambient RMS during first ~1.2s
+        const elapsed = performance.now() - startTsRef.current;
+        if (elapsed < 1200) {
+          if (rawRms > noiseFloorRef.current) noiseFloorRef.current = rawRms;
+          noiseSamplesRef.current++;
+        }
+        const noiseFloor = noiseFloorRef.current;
+        // Gate = max(absolute minimum, noise floor * 2.5). Absolute floor
+        // very low so weak treble strings still trigger.
+        const adaptiveGate = Math.max(0.0015, noiseFloor * 2.5);
 
         if (
           !nonZeroRef.current &&
@@ -243,12 +255,29 @@ export function usePitchDetection(enabled: boolean): PitchState & {
           );
         }
 
-        const res: YinResult | null = detectPitchYIN(buffer, ctx.sampleRate, {
-          threshold: 0.15,
-          minFreq: 55,
-          maxFreq: 1000,
-          rmsThreshold: 0.004,
-        });
+        // Auto Gain Control: normalize peak amplitude before YIN so treble
+        // strings (naturally quieter) are analyzed on equal footing.
+        let peak = 0;
+        for (let i = 0; i < buffer.length; i++) {
+          const a = Math.abs(buffer[i]);
+          if (a > peak) peak = a;
+        }
+        const target = 0.5;
+        const gain = peak > 0.001 ? Math.min(50, target / peak) : 1;
+        for (let i = 0; i < buffer.length; i++) {
+          normalized[i] = buffer[i] * gain;
+        }
+
+        const signalOk = elapsed >= 1200 && rawRms >= adaptiveGate;
+
+        const res: YinResult | null = signalOk
+          ? detectPitchYIN(normalized, ctx.sampleRate, {
+              threshold: 0.15,
+              minFreq: 55,
+              maxFreq: 1000,
+              rmsThreshold: 0, // gate handled above on raw signal
+            })
+          : null;
 
 
         // Throttle diagnostic track polling to ~10 Hz
