@@ -119,9 +119,11 @@ export function TunerScreen() {
       ? 1200 * Math.log2(pitch.freq / chroma.refFreq)
       : null;
 
-  // Lissage visuel FORT et indépendant de la détection : l'indicateur bouge
-  // comme une aiguille physique avec inertie. On snap uniquement quand la note
-  // chromatique détectée change (sinon l'interpolation traverserait les notes).
+  // Lissage adaptatif type "1€ filter" : quand la fréquence évolue de façon
+  // continue et cohérente (l'utilisateur tourne la clé), le filtre s'ouvre et
+  // l'indicateur suit en temps réel comme une aiguille de compteur. Quand la
+  // valeur oscille aléatoirement autour d'une position stable (bruit de
+  // mesure), le filtre se referme et lisse fort.
   const smoothedCentsRef = useRef<number | null>(null);
   const lastMidiRef = useRef<number | null>(null);
   const [displayCents, setDisplayCents] = useState<number | null>(null);
@@ -135,9 +137,29 @@ export function TunerScreen() {
     const prev = smoothedCentsRef.current;
     const noteChanged = lastMidiRef.current !== chroma.midi;
     lastMidiRef.current = chroma.midi;
-    const alpha = 0.15; // 0.85 * prev + 0.15 * new
-    const next =
-      prev === null || noteChanged ? liveCents : prev + alpha * (liveCents - prev);
+    if (prev === null || noteChanged) {
+      smoothedCentsRef.current = liveCents;
+      setDisplayCents(liveCents);
+      return;
+    }
+    const delta = liveCents - prev;
+    const absDelta = Math.abs(delta);
+    // Alpha adaptatif :
+    //  - petit écart (<=1c) → alpha ≈ 0.12  → lissage fort du bruit
+    //  - grand écart (>=10c) → alpha ≈ 1    → suit sans délai
+    //  - entre les deux → interpolation linéaire, ratio direct
+    const MIN_A = 0.12;
+    const MAX_A = 1;
+    const LOW = 1;   // cents : sous ce seuil = bruit
+    const HIGH = 10; // cents : au-dessus = vrai mouvement
+    let alpha: number;
+    if (absDelta <= LOW) alpha = MIN_A;
+    else if (absDelta >= HIGH) alpha = MAX_A;
+    else {
+      const t = (absDelta - LOW) / (HIGH - LOW);
+      alpha = MIN_A + t * (MAX_A - MIN_A);
+    }
+    const next = prev + alpha * delta;
     smoothedCentsRef.current = next;
     setDisplayCents(next);
   }, [liveCents, chroma]);
