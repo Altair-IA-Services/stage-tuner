@@ -119,18 +119,25 @@ export function TunerScreen() {
       ? 1200 * Math.log2(pitch.freq / chroma.refFreq)
       : null;
 
+  // Lissage visuel FORT et indépendant de la détection : l'indicateur bouge
+  // comme une aiguille physique avec inertie. On snap uniquement quand la note
+  // chromatique détectée change (sinon l'interpolation traverserait les notes).
   const smoothedCentsRef = useRef<number | null>(null);
+  const lastMidiRef = useRef<number | null>(null);
   const [displayCents, setDisplayCents] = useState<number | null>(null);
   useEffect(() => {
-    if (chroma === null) {
+    if (chroma === null || liveCents === null) {
       smoothedCentsRef.current = null;
+      lastMidiRef.current = null;
       setDisplayCents(null);
       return;
     }
-    if (liveCents === null) return;
     const prev = smoothedCentsRef.current;
-    const alpha = 0.25;
-    const next = prev === null ? liveCents : prev + alpha * (liveCents - prev);
+    const noteChanged = lastMidiRef.current !== chroma.midi;
+    lastMidiRef.current = chroma.midi;
+    const alpha = 0.15; // 0.85 * prev + 0.15 * new
+    const next =
+      prev === null || noteChanged ? liveCents : prev + alpha * (liveCents - prev);
     smoothedCentsRef.current = next;
     setDisplayCents(next);
   }, [liveCents, chroma]);
