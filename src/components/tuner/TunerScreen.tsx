@@ -15,7 +15,9 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const IN_TUNE_CENTS = 5;
-const NOISE_GATE_RMS = 0.004;
+// Very low absolute floor — the hook applies an adaptive gate on top of this,
+// so a light pluck on a thin treble string is still recognized as "signal".
+const NOISE_GATE_RMS = 0.0015;
 const SUSTAIN_MS = 1800;
 const STABILITY_MS = 180;
 const HISTORY_MS = 400;
