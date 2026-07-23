@@ -295,9 +295,11 @@ export function usePitchDetection(enabled: boolean): PitchState & {
           }
         }
 
-        if (res && res.probability > 0.85) {
+        if (res && res.probability > 0.8) {
           const prev = smoothRef.current;
-          const next = prev ? prev * 0.6 + res.frequency * 0.4 : res.frequency;
+          // Lighter smoothing so the arc tracks the string in real time as
+          // the user turns the peg. Still enough to kill single-frame jitter.
+          const next = prev ? prev * 0.35 + res.frequency * 0.65 : res.frequency;
           smoothRef.current = next;
           setState((s) => ({
             ...s,
