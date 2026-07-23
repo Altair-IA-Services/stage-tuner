@@ -179,10 +179,13 @@ export function usePitchDetection(enabled: boolean): PitchState & {
       analyserRef.current = analyser;
       bufferRef.current = new Float32Array(analyser.fftSize);
       byteBufferRef.current = new Uint8Array(analyser.fftSize);
+      normalizedBufferRef.current = new Float32Array(analyser.fftSize);
 
 
       startTsRef.current = performance.now();
       nonZeroRef.current = false;
+      noiseFloorRef.current = 0;
+      noiseSamplesRef.current = 0;
 
       const track = tracks[0];
       setState((s) => ({
