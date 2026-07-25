@@ -264,7 +264,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
           if (a > peak) peak = a;
         }
         const target = 0.5;
-        const gain = peak > 0.001 ? Math.min(50, target / peak) : 1;
+        const gain = peak > 0.001 ? Math.min(20, target / peak) : 1;
         for (let i = 0; i < buffer.length; i++) {
           normalized[i] = buffer[i] * gain;
         }
