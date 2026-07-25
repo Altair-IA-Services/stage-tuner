@@ -58,6 +58,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
   const noiseFloorRef = useRef<number>(0);
   const noiseSamplesRef = useRef<number>(0);
   const normalizedBufferRef = useRef<Float32Array | null>(null);
+  const missCountRef = useRef<number>(0);
 
   const stop = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
