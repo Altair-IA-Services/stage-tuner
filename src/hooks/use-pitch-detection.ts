@@ -296,7 +296,8 @@ export function usePitchDetection(enabled: boolean): PitchState & {
           }
         }
 
-        if (res && res.probability > 0.8) {
+        if (res && res.probability > 0.75) {
+          missCountRef.current = 0;
           const prev = smoothRef.current;
           // Lighter smoothing so the arc tracks the string in real time as
           // the user turns the peg. Still enough to kill single-frame jitter.
@@ -316,10 +317,14 @@ export function usePitchDetection(enabled: boolean): PitchState & {
             ...trackPatch,
           }));
         } else {
-          smoothRef.current = null;
+          missCountRef.current++;
+          // ~1.8s hold @ 60fps before clearing the display
+          const HOLD_FRAMES = 108;
+          const held = missCountRef.current <= HOLD_FRAMES ? smoothRef.current : null;
+          if (held === null) smoothRef.current = null;
           setState((s) => ({
             ...s,
-            freq: null,
+            freq: held,
             rms: rawRms,
             byteAvg,
             byteMax,
