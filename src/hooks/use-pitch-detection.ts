@@ -58,6 +58,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
   const noiseFloorRef = useRef<number>(0);
   const noiseSamplesRef = useRef<number>(0);
   const normalizedBufferRef = useRef<Float32Array | null>(null);
+  const missCountRef = useRef<number>(0);
 
   const stop = () => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -263,7 +264,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
           if (a > peak) peak = a;
         }
         const target = 0.5;
-        const gain = peak > 0.001 ? Math.min(50, target / peak) : 1;
+        const gain = peak > 0.001 ? Math.min(20, target / peak) : 1;
         for (let i = 0; i < buffer.length; i++) {
           normalized[i] = buffer[i] * gain;
         }
@@ -295,7 +296,8 @@ export function usePitchDetection(enabled: boolean): PitchState & {
           }
         }
 
-        if (res && res.probability > 0.8) {
+        if (res && res.probability > 0.75) {
+          missCountRef.current = 0;
           const prev = smoothRef.current;
           // Lighter smoothing so the arc tracks the string in real time as
           // the user turns the peg. Still enough to kill single-frame jitter.
@@ -315,10 +317,14 @@ export function usePitchDetection(enabled: boolean): PitchState & {
             ...trackPatch,
           }));
         } else {
-          smoothRef.current = null;
+          missCountRef.current++;
+          // ~1.8s hold @ 60fps before clearing the display
+          const HOLD_FRAMES = 108;
+          const held = missCountRef.current <= HOLD_FRAMES ? smoothRef.current : null;
+          if (held === null) smoothRef.current = null;
           setState((s) => ({
             ...s,
-            freq: null,
+            freq: held,
             rms: rawRms,
             byteAvg,
             byteMax,
