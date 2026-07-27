@@ -214,10 +214,10 @@ export function TunerScreen() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#0b0407] flex items-start justify-center px-3 py-6 sm:py-10">
+    <div className="h-[100dvh] w-full overflow-hidden bg-[#0b0407] flex items-center justify-center px-3 py-2 sm:py-4">
       {/* PEDAL BODY */}
       <div
-        className="relative w-full max-w-[420px] rounded-[36px] px-6 pt-6 pb-8 select-none"
+        className="relative w-full max-w-[420px] max-h-full rounded-[28px] px-5 pt-3 pb-3 select-none flex flex-col"
         style={{
           background:
             "linear-gradient(160deg, #C22440 0%, #A31E37 45%, #7A0E24 100%)",
@@ -253,13 +253,13 @@ export function TunerScreen() {
         ))}
 
         {/* Logo */}
-        <div className="text-center">
+        <div className="text-center shrink-0">
           <div
             className="leading-none"
             style={{
               fontFamily: '"Metal Mania", cursive',
               color: "#FFE9B3",
-              fontSize: "2.4rem",
+              fontSize: "1.9rem",
               textShadow:
                 "0 1px 0 rgba(0,0,0,0.5), 0 0 12px rgba(255,209,102,0.35)",
               letterSpacing: "0.02em",
@@ -269,7 +269,7 @@ export function TunerScreen() {
           </div>
           <svg
             viewBox="0 0 220 10"
-            className="mx-auto mt-1 h-2 w-40"
+            className="mx-auto mt-0.5 h-2 w-32"
             aria-hidden
           >
             <path
@@ -284,13 +284,14 @@ export function TunerScreen() {
         </div>
 
         {/* Arc VU meter */}
-        <div className="mt-5">
+        <div className="mt-2 mx-auto w-full max-w-[280px] shrink-0">
           <ArcMeter cents={cents} inTune={inTune} />
         </div>
 
+
         {/* LCD display */}
         <div
-          className="mt-4 rounded-xl px-4 py-3"
+          className="mt-2 rounded-xl px-3 py-2 shrink-0"
           style={{
             background:
               "linear-gradient(180deg, #1a0509 0%, #2B0A12 100%)",
@@ -302,7 +303,7 @@ export function TunerScreen() {
             <div
               className="font-display font-bold uppercase leading-none tabular-nums"
               style={{
-                fontSize: "4.5rem",
+                fontSize: "3.2rem",
                 color: chroma
                   ? inTune
                     ? "#3DDC84"
@@ -314,14 +315,14 @@ export function TunerScreen() {
                     : "0 0 18px #FF4D4D"
                   : "0 0 12px rgba(255,209,102,0.4)",
                 fontFamily: '"Oswald", "Barlow Condensed", sans-serif',
-                minWidth: "5rem",
+                minWidth: "4rem",
               }}
             >
               {chroma ? chroma.name : "—"}
             </div>
             <div className="text-right">
               <div
-                className="font-mono text-2xl tabular-nums"
+                className="font-mono text-xl tabular-nums"
                 style={{
                   color: chroma
                     ? inTune
@@ -334,33 +335,33 @@ export function TunerScreen() {
                   ? `${cents > 0 ? "+" : ""}${cents.toFixed(1)}`
                   : "--"}
               </div>
-              <div className="font-mono text-[10px] uppercase tracking-widest text-[#FFE9B3]/50">
+              <div className="font-mono text-[9px] uppercase tracking-widest text-[#FFE9B3]/50">
                 cents
               </div>
               {chroma && (
-                <div className="mt-1 font-mono text-[10px] text-[#FFE9B3]/60 tabular-nums">
+                <div className="font-mono text-[9px] text-[#FFE9B3]/60 tabular-nums">
                   {chroma.fullName}
                 </div>
               )}
             </div>
           </div>
           {pitch.error && (
-            <div className="mt-2 font-mono text-[10px] text-[#FF4D4D]/90">
+            <div className="mt-1 font-mono text-[10px] text-[#FF4D4D]/90">
               {pitch.error}
             </div>
           )}
         </div>
 
         {/* Knobs */}
-        <div className="mt-8 flex items-end justify-around">
+        <div className="mt-3 flex items-end justify-around shrink-0">
           {KNOBS.map((k) => {
             const selected = tuningId === k.id;
-            const size = k.big ? 90 : 68;
+            const size = k.big ? 62 : 48;
             return (
               <button
                 key={k.id}
                 onClick={() => setTuningId(k.id)}
-                className="flex flex-col items-center gap-2 focus:outline-none"
+                className="flex flex-col items-center gap-1 focus:outline-none"
                 aria-label={`Accordage ${k.label}`}
               >
                 <div
@@ -390,14 +391,14 @@ export function TunerScreen() {
                   />
                   {/* Center cap */}
                   <div
-                    className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                    className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
                     style={{
                       background: selected ? "#7A0E24" : "#2a2a2a",
                     }}
                   />
                 </div>
                 <span
-                  className="font-display text-sm font-bold uppercase tracking-widest"
+                  className="font-display text-xs font-bold uppercase tracking-widest"
                   style={{
                     color: selected ? "#FFE9B3" : "#FFE9B3aa",
                     textShadow: selected
@@ -413,13 +414,13 @@ export function TunerScreen() {
         </div>
 
         {/* Footswitch */}
-        <div className="mt-8 flex justify-center">
+        <div className="mt-3 flex justify-center shrink-0">
           <button
             onPointerDown={() => setPressed(true)}
             onPointerUp={() => setPressed(false)}
             onPointerLeave={() => setPressed(false)}
             onClick={handleFootswitch}
-            className="relative flex h-24 w-24 items-center justify-center rounded-full focus:outline-none"
+            className="relative flex h-20 w-20 items-center justify-center rounded-full focus:outline-none"
             style={{
               background:
                 "radial-gradient(circle at 35% 30%, #FFE9B3, #FFD166 45%, #a3781f 100%)",
@@ -432,7 +433,7 @@ export function TunerScreen() {
             aria-label={micOn ? "Couper le micro" : "Activer le micro"}
           >
             <div
-              className="flex h-16 w-16 items-center justify-center rounded-full"
+              className="flex h-14 w-14 items-center justify-center rounded-full"
               style={{
                 background: micOn
                   ? "radial-gradient(circle at 50% 40%, #FF6b6b, #A31E37)"
@@ -443,21 +444,21 @@ export function TunerScreen() {
               }}
             >
               <Mic
-                className="h-7 w-7"
+                className="h-6 w-6"
                 style={{ color: micOn ? "#FFE9B3" : "#FFD166cc" }}
               />
             </div>
           </button>
         </div>
         <div
-          className="mt-2 text-center font-mono text-[10px] uppercase tracking-[0.35em]"
+          className="mt-1 text-center font-mono text-[9px] uppercase tracking-[0.35em] shrink-0"
           style={{ color: micOn ? "#3DDC84" : "#FFE9B3aa" }}
         >
           {micOn ? "● On" : "○ Off"}
         </div>
 
         {/* Jack row */}
-        <div className="mt-8 flex items-end justify-around">
+        <div className="mt-auto pt-3 flex items-end justify-around shrink-0">
           <JackButton
             icon={<Save className="h-4 w-4" />}
             label="Presets"
@@ -474,6 +475,7 @@ export function TunerScreen() {
             onClick={() => setShowStrings(true)}
           />
         </div>
+
       </div>
 
       {/* Strings modal */}
