@@ -236,7 +236,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
         const noiseFloor = noiseFloorRef.current;
         // Gate = max(absolute minimum, noise floor * 2.5). Absolute floor
         // very low so weak treble strings still trigger.
-        const adaptiveGate = Math.max(0.0015, noiseFloor * 2.5);
+        const adaptiveGate = Math.max(0.0015, noiseFloor * 1.8);
 
         if (
           !nonZeroRef.current &&
@@ -264,7 +264,7 @@ export function usePitchDetection(enabled: boolean): PitchState & {
           if (a > peak) peak = a;
         }
         const target = 0.5;
-        const gain = peak > 0.001 ? Math.min(20, target / peak) : 1;
+        const gain = peak > 0.001 ? Math.min(80, target / peak) : 1;
         for (let i = 0; i < buffer.length; i++) {
           normalized[i] = buffer[i] * gain;
         }
