@@ -284,7 +284,7 @@ export function TunerScreen() {
         </div>
 
         {/* Arc VU meter */}
-        <div className="mt-2 mx-auto w-full max-w-[280px] shrink-0">
+        <div className="mt-1 mx-auto w-full max-w-[340px] shrink-0">
           <ArcMeter cents={cents} inTune={inTune} />
         </div>
 
