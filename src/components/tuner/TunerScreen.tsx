@@ -458,7 +458,7 @@ export function TunerScreen() {
         </div>
 
         {/* Jack row */}
-        <div className="mt-auto pt-3 flex items-end justify-around shrink-0">
+        <div className="mt-auto pt-1 flex items-end justify-around shrink-0">
           <JackButton
             icon={<Save className="h-4 w-4" />}
             label="Presets"
