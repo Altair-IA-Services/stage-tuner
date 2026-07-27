@@ -150,8 +150,8 @@ export function TunerScreen() {
     //  - entre les deux → interpolation linéaire, ratio direct
     const MIN_A = 0.12;
     const MAX_A = 1;
-    const LOW = 1;   // cents : sous ce seuil = bruit
-    const HIGH = 10; // cents : au-dessus = vrai mouvement
+    const LOW = 0.15;   // cents : sous ce seuil = bruit de mesure
+    const HIGH = 3;     // cents : au-dessus = vrai mouvement de clé
     let alpha: number;
     if (absDelta <= LOW) alpha = MIN_A;
     else if (absDelta >= HIGH) alpha = MAX_A;
