@@ -214,10 +214,10 @@ export function TunerScreen() {
   };
 
   return (
-    <div className="h-[100dvh] w-full overflow-hidden bg-[#0b0407] flex items-center justify-center px-3 py-2 sm:py-4">
+    <div className="h-[100dvh] w-full overflow-hidden bg-[#0b0407] flex items-center justify-center px-3 py-1 sm:py-2">
       {/* PEDAL BODY */}
       <div
-        className="relative w-full max-w-[420px] max-h-full rounded-[28px] px-5 pt-3 pb-3 select-none flex flex-col"
+        className="relative w-full max-w-[420px] max-h-full rounded-[28px] px-5 pt-1.5 pb-1.5 select-none flex flex-col"
         style={{
           background:
             "linear-gradient(160deg, #C22440 0%, #A31E37 45%, #7A0E24 100%)",
@@ -227,10 +227,10 @@ export function TunerScreen() {
       >
         {/* Corner screws */}
         {[
-          "top-3 left-3",
-          "top-3 right-3",
-          "bottom-3 left-3",
-          "bottom-3 right-3",
+          "top-2 left-2",
+          "top-2 right-2",
+          "bottom-2 left-2",
+          "bottom-2 right-2",
         ].map((pos) => (
           <div
             key={pos}
@@ -284,7 +284,7 @@ export function TunerScreen() {
         </div>
 
         {/* Arc VU meter */}
-        <div className="mt-2 mx-auto w-full max-w-[280px] shrink-0">
+        <div className="mt-1 mx-auto w-full max-w-[340px] shrink-0">
           <ArcMeter cents={cents} inTune={inTune} />
         </div>
 
@@ -458,7 +458,7 @@ export function TunerScreen() {
         </div>
 
         {/* Jack row */}
-        <div className="mt-auto pt-3 flex items-end justify-around shrink-0">
+        <div className="mt-auto pt-1 flex items-end justify-around shrink-0">
           <JackButton
             icon={<Save className="h-4 w-4" />}
             label="Presets"
