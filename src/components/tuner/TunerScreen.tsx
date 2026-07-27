@@ -214,10 +214,10 @@ export function TunerScreen() {
   };
 
   return (
-    <div className="h-[100dvh] w-full overflow-hidden bg-[#0b0407] flex items-center justify-center px-3 py-2 sm:py-4">
+    <div className="h-[100dvh] w-full overflow-hidden bg-[#0b0407] flex items-center justify-center px-3 py-1 sm:py-2">
       {/* PEDAL BODY */}
       <div
-        className="relative w-full max-w-[420px] max-h-full rounded-[28px] px-5 pt-3 pb-3 select-none flex flex-col"
+        className="relative w-full max-w-[420px] max-h-full rounded-[28px] px-5 pt-1.5 pb-1.5 select-none flex flex-col"
         style={{
           background:
             "linear-gradient(160deg, #C22440 0%, #A31E37 45%, #7A0E24 100%)",
