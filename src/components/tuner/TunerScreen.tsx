@@ -253,13 +253,13 @@ export function TunerScreen() {
         ))}
 
         {/* Logo */}
-        <div className="text-center">
+        <div className="text-center shrink-0">
           <div
             className="leading-none"
             style={{
               fontFamily: '"Metal Mania", cursive',
               color: "#FFE9B3",
-              fontSize: "2.4rem",
+              fontSize: "1.9rem",
               textShadow:
                 "0 1px 0 rgba(0,0,0,0.5), 0 0 12px rgba(255,209,102,0.35)",
               letterSpacing: "0.02em",
@@ -269,7 +269,7 @@ export function TunerScreen() {
           </div>
           <svg
             viewBox="0 0 220 10"
-            className="mx-auto mt-1 h-2 w-40"
+            className="mx-auto mt-0.5 h-2 w-32"
             aria-hidden
           >
             <path
@@ -284,9 +284,10 @@ export function TunerScreen() {
         </div>
 
         {/* Arc VU meter */}
-        <div className="mt-5">
+        <div className="mt-2 mx-auto w-full max-w-[280px] shrink-0">
           <ArcMeter cents={cents} inTune={inTune} />
         </div>
+
 
         {/* LCD display */}
         <div
