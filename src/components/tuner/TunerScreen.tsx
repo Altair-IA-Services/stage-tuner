@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mic, Save, Share2, Volume2, Trash2, X, Play, Square } from "lucide-react";
+import { Mic, Save, Share2, Volume2, Trash2, X, Play, Square, Scale } from "lucide-react";
 import { usePitchDetection } from "@/hooks/use-pitch-detection";
 import { TUNINGS, getTuning } from "@/lib/tunings";
 import { freqToChromatic, noteFromMidi } from "@/lib/chromatic";
@@ -36,6 +36,7 @@ export function TunerScreen() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [showPresets, setShowPresets] = useState(false);
   const [showStrings, setShowStrings] = useState(false);
+  const [showLegal, setShowLegal] = useState(false);
   const [pressed, setPressed] = useState(false);
 
   const tuning = useMemo(() => getTuning(tuningId), [tuningId]);
@@ -217,7 +218,7 @@ export function TunerScreen() {
     <div className="h-[100dvh] w-full overflow-hidden bg-[#0b0407] flex items-center justify-center px-3 py-1 sm:py-2">
       {/* PEDAL BODY */}
       <div
-        className="relative w-full max-w-[420px] max-h-full rounded-[28px] px-5 pt-1.5 pb-1.5 select-none flex flex-col"
+        className="relative w-full max-w-[420px] max-h-full rounded-[28px] px-5 pt-1.5 pb-4 select-none flex flex-col"
         style={{
           background:
             "linear-gradient(160deg, #C22440 0%, #A31E37 45%, #7A0E24 100%)",
@@ -460,19 +461,24 @@ export function TunerScreen() {
         {/* Jack row */}
         <div className="mt-auto pt-1 flex items-end justify-around shrink-0">
           <JackButton
-            icon={<Save className="h-4 w-4" />}
+            icon={<Save className="h-3.5 w-3.5" />}
             label="Presets"
             onClick={() => setShowPresets(true)}
           />
           <JackButton
-            icon={<Share2 className="h-4 w-4" />}
+            icon={<Share2 className="h-3.5 w-3.5" />}
             label="Partager"
             onClick={handleShare}
           />
           <JackButton
-            icon={<Volume2 className="h-4 w-4" />}
+            icon={<Volume2 className="h-3.5 w-3.5" />}
             label="Cordes"
             onClick={() => setShowStrings(true)}
+          />
+          <JackButton
+            icon={<Scale className="h-3.5 w-3.5" />}
+            label="CGU/CGV"
+            onClick={() => setShowLegal(true)}
           />
         </div>
 
@@ -562,6 +568,53 @@ export function TunerScreen() {
           )}
         </Modal>
       )}
+
+      {/* Legal modal */}
+      {showLegal && (
+        <Modal onClose={() => setShowLegal(false)} title="CGU / CGV">
+          <div className="max-h-[70vh] overflow-y-auto pr-1 space-y-4 font-mono text-[11px] leading-relaxed text-[#FFE9B3]/85">
+            <section>
+              <h4 className="mb-1 font-display text-sm font-bold uppercase tracking-widest text-[#FFD166]">
+                Mentions légales
+              </h4>
+              <p>WeirdTuner est édité par Altaïr, SAS au capital de 87 500 €</p>
+              <p>Siège social : 21 Avenue du Parnasse, 44800 Saint-Herblain</p>
+              <p>SIRET : 904 551 066 00023 — RCS Nantes</p>
+              <p>Représentant : Vincent Plançon, Président</p>
+              <p>Contact : contact@group-altair.fr</p>
+              <p className="mt-2">
+                <strong className="text-[#FFE9B3]">Hébergement :</strong> L'application est hébergée par Lovable Labs Incorporated, via la plateforme Lovable.
+              </p>
+              <p className="mt-2">
+                <strong className="text-[#FFE9B3]">Propriété intellectuelle :</strong> L'ensemble des éléments de l'application (design, code, marque WeirdTuner) est la propriété d'Altaïr, sauf mention contraire.
+              </p>
+            </section>
+
+            <section>
+              <h4 className="mb-1 font-display text-sm font-bold uppercase tracking-widest text-[#FFD166]">
+                Conditions d'utilisation (CGU)
+              </h4>
+              <p>En utilisant WeirdTuner, vous acceptez les conditions suivantes :</p>
+              <p className="mt-2"><strong className="text-[#FFE9B3]">1. Nature du service :</strong> WeirdTuner est un outil d'accordage de guitare fourni à titre gratuit pendant sa phase de test. Il est fourni "en l'état", sans garantie de disponibilité continue ou d'absence totale d'erreur.</p>
+              <p className="mt-2"><strong className="text-[#FFE9B3]">2. Précision de l'outil :</strong> Bien que WeirdTuner vise une haute précision d'accordage, l'éditeur ne garantit pas une exactitude absolue en toutes circonstances (conditions sonores, qualité du microphone de l'appareil, etc.). L'utilisateur reste responsable de la vérification finale de son accordage.</p>
+              <p className="mt-2"><strong className="text-[#FFE9B3]">3. Usage autorisé :</strong> L'application est destinée à un usage personnel. Toute exploitation commerciale du code ou du design sans autorisation est interdite.</p>
+              <p className="mt-2"><strong className="text-[#FFE9B3]">4. Évolution du service :</strong> L'éditeur se réserve le droit de faire évoluer, suspendre, ou modifier les fonctionnalités de l'application à tout moment, y compris son modèle économique (passage à des fonctionnalités payantes notamment).</p>
+              <p className="mt-2"><strong className="text-[#FFE9B3]">5. Contact :</strong> contact@group-altair.fr</p>
+            </section>
+
+            <section>
+              <h4 className="mb-1 font-display text-sm font-bold uppercase tracking-widest text-[#FFD166]">
+                Politique de confidentialité
+              </h4>
+              <p>WeirdTuner respecte votre vie privée. Voici ce que vous devez savoir :</p>
+              <p className="mt-2"><strong className="text-[#FFE9B3]">Accès au microphone :</strong> L'application utilise votre microphone uniquement pour analyser la fréquence des notes jouées, en temps réel, directement sur votre appareil. Aucun son n'est enregistré, transmis, ou stocké sur un serveur.</p>
+              <p className="mt-2"><strong className="text-[#FFE9B3]">Données stockées localement :</strong> Vos préréglages (presets) et vos préférences sont stockés uniquement sur votre appareil (stockage local du navigateur), pas sur un serveur distant. Nous n'avons pas accès à ces données.</p>
+              <p className="mt-2"><strong className="text-[#FFE9B3]">Fonctionnement hors ligne :</strong> L'application peut fonctionner sans connexion internet après un premier chargement. Aucune donnée n'est envoyée pendant cette utilisation hors ligne.</p>
+              <p className="mt-2"><strong className="text-[#FFE9B3]">Contact :</strong> contact@group-altair.fr</p>
+            </section>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -581,7 +634,7 @@ function JackButton({
       className="flex flex-col items-center gap-1.5 focus:outline-none"
     >
       <div
-        className="relative flex h-11 w-11 items-center justify-center rounded-full"
+        className="relative flex h-10 w-10 items-center justify-center rounded-full"
         style={{
           background:
             "radial-gradient(circle at 35% 30%, #6a6a6a, #2a2a2a 65%, #0a0a0a 100%)",
@@ -590,7 +643,7 @@ function JackButton({
         }}
       >
         <div
-          className="flex h-7 w-7 items-center justify-center rounded-full"
+          className="flex h-6 w-6 items-center justify-center rounded-full"
           style={{
             background:
               "radial-gradient(circle at 40% 35%, #1a1a1a, #000)",
