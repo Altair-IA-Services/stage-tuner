@@ -587,7 +587,7 @@ function JackButton({
       className="flex flex-col items-center gap-1.5 focus:outline-none"
     >
       <div
-        className="relative flex h-11 w-11 items-center justify-center rounded-full"
+        className="relative flex h-10 w-10 items-center justify-center rounded-full"
         style={{
           background:
             "radial-gradient(circle at 35% 30%, #6a6a6a, #2a2a2a 65%, #0a0a0a 100%)",
@@ -596,7 +596,7 @@ function JackButton({
         }}
       >
         <div
-          className="flex h-7 w-7 items-center justify-center rounded-full"
+          className="flex h-6 w-6 items-center justify-center rounded-full"
           style={{
             background:
               "radial-gradient(circle at 40% 35%, #1a1a1a, #000)",
