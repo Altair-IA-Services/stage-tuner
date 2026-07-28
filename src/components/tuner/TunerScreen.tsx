@@ -461,19 +461,24 @@ export function TunerScreen() {
         {/* Jack row */}
         <div className="mt-auto pt-1 flex items-end justify-around shrink-0">
           <JackButton
-            icon={<Save className="h-4 w-4" />}
+            icon={<Save className="h-3.5 w-3.5" />}
             label="Presets"
             onClick={() => setShowPresets(true)}
           />
           <JackButton
-            icon={<Share2 className="h-4 w-4" />}
+            icon={<Share2 className="h-3.5 w-3.5" />}
             label="Partager"
             onClick={handleShare}
           />
           <JackButton
-            icon={<Volume2 className="h-4 w-4" />}
+            icon={<Volume2 className="h-3.5 w-3.5" />}
             label="Cordes"
             onClick={() => setShowStrings(true)}
+          />
+          <JackButton
+            icon={<Scale className="h-3.5 w-3.5" />}
+            label="CGU/CGV"
+            onClick={() => setShowLegal(true)}
           />
         </div>
 
