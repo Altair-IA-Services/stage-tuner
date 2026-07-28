@@ -36,6 +36,7 @@ export function TunerScreen() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [showPresets, setShowPresets] = useState(false);
   const [showStrings, setShowStrings] = useState(false);
+  const [showLegal, setShowLegal] = useState(false);
   const [pressed, setPressed] = useState(false);
 
   const tuning = useMemo(() => getTuning(tuningId), [tuningId]);
