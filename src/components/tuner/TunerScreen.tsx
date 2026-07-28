@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mic, Save, Share2, Volume2, Trash2, X, Play, Square } from "lucide-react";
+import { Mic, Save, Share2, Volume2, Trash2, X, Play, Square, Scale } from "lucide-react";
 import { usePitchDetection } from "@/hooks/use-pitch-detection";
 import { TUNINGS, getTuning } from "@/lib/tunings";
 import { freqToChromatic, noteFromMidi } from "@/lib/chromatic";
